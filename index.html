@@ -117,11 +117,11 @@ a{color:inherit;}
 /* mascot : つな — a weird little pixel creature.
    ヒーロー上部に画面幅いっぱいの「散歩道」を敷き、右の外から左の外へ抜けて、また右から現れる。
    .wrap の外に置いてあるので、帯は常にビューポート幅ぶんある。 */
-.mascot-lane{position:relative;z-index:1;order:1;height:clamp(88px,11vw,124px);margin:0 0 10px;
+.mascot-lane{position:relative;z-index:1;order:1;height:clamp(136px,14vw,168px);margin:0 0 10px;
   overflow:hidden;pointer-events:none;}
 /* left:50% + translateX が基準。アニメーションが止まる環境（下の prefers-reduced-motion）では
    transform が効かないので、その場合は画面中央あたりに立ったままになる ＝ 消えない。 */
-.mascot{position:absolute;left:50%;bottom:0;width:clamp(64px,8vw,96px);
+.mascot{position:absolute;left:50%;bottom:0;width:clamp(112px,11vw,144px);
   transform:translateX(-50%);}
 .mascot svg{display:block;width:100%;height:auto;animation:bob 1.8s steps(1,end) infinite;transform-origin:50% 92%;}
 .mascot rect{shape-rendering:crispEdges;}
