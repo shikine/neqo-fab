@@ -321,6 +321,19 @@ a{color:inherit;}
 .field-check label{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--ink);text-transform:none;font-family:inherit;letter-spacing:0;cursor:pointer;}
 .field-check input{width:16px;height:16px;accent-color:var(--key);}
 .form-note{font-size:11px;color:var(--ink-soft);margin-top:10px;line-height:1.5;}
+/* 日程（任意）。既定は閉じていて、チェックで開く */
+.sched{border:1px dashed var(--line);padding:14px;margin-bottom:16px;}
+.sched[hidden]{display:none;}
+.sched-toggle{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;cursor:pointer;}
+.sched-toggle input{width:16px;height:16px;accent-color:var(--key);flex:none;margin-top:2px;}
+.sched-toggle small{display:block;font-size:10px;letter-spacing:.06em;color:var(--ink-soft);
+  font-family:"Silkscreen",var(--jp),monospace;margin-top:3px;}
+.sched-body{margin-top:14px;}
+.sched-body[hidden]{display:none;}
+/* 片方だけ margin を消すと、グリッド行の高さが揃わずに背の低い方が引き伸ばされて
+   ラベルと選択欄がずれる。2つとも消すこと。 */
+.sched-body .row2{margin-bottom:0;}
+.sched-body .row2 .field{margin-bottom:0;}
 .sent{border:1px solid var(--ink);background:var(--paper);padding:16px;font-size:13px;display:none;margin-top:14px;}
 .sent.show{display:block;}
 .sent b{font-family:"Silkscreen",monospace;font-size:12px;color:var(--blue-ink);display:block;margin-bottom:6px;}
@@ -591,6 +604,20 @@ a{color:inherit;}
           <label for="cMsg">MESSAGE ／ ご相談内容 *</label>
           <textarea id="cMsg" required placeholder="つくりたいもの、用途、数量、納期、予算感など。ざっくりでOKです。"></textarea>
         </div>
+        <!-- 日程（任意）。チェックしたときだけ空き枠を取りに行く -->
+        <div class="sched">
+          <label class="sched-toggle">
+            <input type="checkbox" id="cWantSlot">
+            <span>オンラインで話す日程も決めたい<small>GOOGLE MEET ／ 1時間</small></span>
+          </label>
+          <div class="sched-body" id="schedBody" hidden>
+            <div class="row2">
+              <div class="field"><label for="cDate">DATE ／ 日付</label><select id="cDate"></select></div>
+              <div class="field"><label for="cTime">TIME ／ 時間</label><select id="cTime"></select></div>
+            </div>
+            <p class="form-note" id="schedNote">空き状況を確認しています…</p>
+          </div>
+        </div>
         <input type="text" id="cHidden" class="sr-only" tabindex="-1" aria-hidden="true" autocomplete="off"/>
         <button type="submit" class="btn accent" id="sendBtn" style="width:100%;justify-content:center;">送信する →</button>
         <p class="form-note">いただいた内容は工房に直接届きます。2〜3日以内にご返信します。</p>
@@ -720,6 +747,78 @@ a{color:inherit;}
     sentBox.classList.add('show');
   }
 
+  // ---------- 日程（任意） ----------
+  // 空き枠は毎回サーバから取る。ここで持っている一覧は「表示用の候補」でしかなく、
+  // 本当に押さえられるかは送信時に Apps Script 側がもう一度判定する。
+  var schedEl=document.querySelector('.sched');
+  var wantSlot=document.getElementById('cWantSlot');
+  var schedBody=document.getElementById('schedBody');
+  var dateSel=document.getElementById('cDate');
+  var timeSel=document.getElementById('cTime');
+  var schedNote=document.getElementById('schedNote');
+  var slotDays=null,slotsLoading=false;
+
+  // 既定は非表示。空き枠が取れたときだけ出す。
+  // こうしておくと、Apps Script が日程に未対応のあいだは項目自体が現れず、
+  // 訪問者に「取得できませんでした」を見せずに済む。
+  schedEl.hidden=true;
+
+  function renderTimes(){
+    timeSel.innerHTML='';
+    if(!slotDays)return;
+    var day=null;
+    for(var i=0;i<slotDays.length;i++){if(slotDays[i].d===dateSel.value){day=slotDays[i];break;}}
+    if(!day)return;
+    day.times.forEach(function(t){
+      var o=document.createElement('option');o.value=t.v;o.textContent=t.t+'〜';timeSel.appendChild(o);
+    });
+  }
+
+  function loadSlots(){
+    if(slotsLoading||!ENDPOINT)return;
+    slotsLoading=true;slotDays=null;
+    dateSel.innerHTML='';timeSel.innerHTML='';
+    schedNote.textContent='空き状況を確認しています…';
+    fetch(ENDPOINT+'?action=slots')
+      .then(function(r){return r.json();})
+      .then(function(res){
+        if(!res||!res.ok||!res.days||!res.days.length)throw new Error('no slots');
+        slotDays=res.days;
+        res.days.forEach(function(d){
+          var o=document.createElement('option');o.value=d.d;o.textContent=d.label;dateSel.appendChild(o);
+        });
+        renderTimes();
+        schedEl.hidden=false;
+        schedNote.textContent='空いている時間だけを表示しています。送信後にこちらで確認し、確定のご連絡をします。';
+      })
+      .catch(function(){
+        slotDays=null;
+        schedEl.hidden=true;   // 出せる枠が無い／未対応なら、はじめから見せない
+      })
+      .then(function(){slotsLoading=false;});
+  }
+
+  wantSlot.addEventListener('change',function(){
+    schedBody.hidden=!wantSlot.checked;
+  });
+  dateSel.addEventListener('change',renderTimes);
+
+  // 相談セクションが視界に入ったときに1度だけ取りに行く。
+  // 全訪問者が読み込み時に叩くと Apps Script の実行時間を無駄に使うため。
+  var slotsRequested=false;
+  function requestSlots(){ if(slotsRequested)return; slotsRequested=true; loadSlots(); }
+  var contactSec=document.getElementById('contact');
+  if(window.IntersectionObserver&&contactSec){
+    var io=new IntersectionObserver(function(entries){
+      for(var i=0;i<entries.length;i++){
+        if(entries[i].isIntersecting){ io.disconnect(); requestSlots(); break; }
+      }
+    },{rootMargin:'300px'});
+    io.observe(contactSec);
+  }else{
+    requestSlots();
+  }
+
   form.addEventListener('submit',function(ev){
     ev.preventDefault();
     var name=document.getElementById('cName').value.trim();
@@ -734,6 +833,15 @@ a{color:inherit;}
       return;
     }
 
+    var slot='';
+    if(wantSlot.checked){
+      slot=timeSel.value||'';
+      if(!slot){
+        say('日程が選べていません','空き状況が読み込めていないか、時間が選ばれていません。チェックを外せば、日程なしでそのまま送れます。',true);
+        return;
+      }
+    }
+
     var eqs=[].slice.call(checks.querySelectorAll('input:checked')).map(function(c){return c.value;});
     var payload=new URLSearchParams({
       hp:document.getElementById('cHidden').value,   // ハニーポット。埋まっていたら受信側で捨てる
@@ -743,7 +851,8 @@ a{color:inherit;}
       mail:mail,
       tel:document.getElementById('cTel').value.trim(),
       equipment:(eqs.length?eqs.join(' / '):'未定・相談したい'),
-      message:msg
+      message:msg,
+      slot:slot
     });
 
     var label=sendBtn.textContent;
@@ -756,11 +865,25 @@ a{color:inherit;}
     fetch(ENDPOINT,{method:'POST',body:payload})
       .then(function(r){ return r.json(); })
       .then(function(res){
+        // フォームを開いてから送るまでに、その枠が埋まることがある。
+        // サーバが弾いた場合は一覧を取り直して、選び直してもらう。
+        if(res&&res.reason==='slot_taken'){throw {taken:true};}
         if(!res||!res.ok) throw new Error('rejected');
-        say('送信しました','ありがとうございます。内容を確認して、2〜3日以内にご返信します。',false);
+        if(res.scheduled){
+          say('送信しました','日程のご希望も受け付けました。こちらで確認のうえ、確定のご連絡をします。',false);
+        }else{
+          say('送信しました','ありがとうございます。内容を確認して、2〜3日以内にご返信します。',false);
+        }
         form.reset();
+        schedBody.hidden=true;   // reset ではイベントが飛ばないので自分で閉じる
+        slotDays=null;
       })
-      .catch(function(){
+      .catch(function(err){
+        if(err&&err.taken){
+          say('その時間はうまってしまいました','空き状況を更新したので、別の時間を選んでもう一度お試しください。',true);
+          loadSlots();
+          return;
+        }
         say('送信できませんでした','お手数ですが、時間をおいてもう一度お試しください。',true);
       })
       .then(function(){ sendBtn.disabled=false;sendBtn.textContent=label; });
