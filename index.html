@@ -170,6 +170,31 @@ a{color:inherit;}
   .mascot{width:clamp(104px,30vw,132px);animation:walk 23.4s steps(26,jump-none) infinite;}
   .mascot svg{animation-name:hop;}
 }
+/* TUNA hurdle game: 通常時は既存のマスコット表示、開始時だけ散歩道がゲーム画面になる。 */
+.game-start,.game-end{position:absolute;z-index:4;top:8px;border:1px solid var(--line);background:var(--paper-2);color:var(--ink);
+  font-family:"Silkscreen",monospace;font-size:10px;letter-spacing:.06em;padding:7px 10px;cursor:pointer;pointer-events:auto;}
+.game-start{right:var(--hgap);}.game-end{right:var(--hgap);display:none;}
+.game-start:hover,.game-end:hover{border-color:var(--ink);}
+.game-hud{position:absolute;z-index:3;top:10px;left:var(--hgap);display:none;align-items:center;gap:14px;
+  font-family:"Silkscreen",monospace;font-size:10px;letter-spacing:.06em;color:var(--ink-soft);}
+.game-hud b{color:var(--blue-ink);font-size:12px;}
+.hurdle{position:absolute;z-index:2;left:0;bottom:0;width:28px;height:46px;display:none;
+  border:6px solid var(--ink);border-bottom:0;background:transparent;transform:translateX(100vw);}
+.hurdle::after{content:"";position:absolute;left:-6px;right:-6px;top:15px;border-top:6px solid var(--key);}
+.mascot-lane.game-active{height:clamp(190px,18vw,220px);pointer-events:auto;cursor:pointer;touch-action:none;border-bottom:1px dashed var(--line);}
+.mascot-lane.game-active .mascot{left:22%;transform:translateX(-50%);animation:none;}
+.mascot-lane.game-active .mascot svg{animation:none;}
+.mascot-lane.game-active .game-start{display:none;}
+.mascot-lane.game-active .game-end,.mascot-lane.game-active .game-hud{display:flex;}
+.mascot-lane.game-active .hurdle{display:block;}
+.mascot-lane.game-over .game-start{display:block;left:50%;right:auto;top:50%;transform:translate(-50%,-50%);}
+.mascot-lane.game-over .game-end{display:none;}
+@media(max-width:760px){
+  .game-start,.game-end{top:4px;right:12px;}
+  .game-hud{top:6px;left:12px;gap:9px;}
+  .mascot-lane.game-active{height:210px;}
+  .mascot-lane.game-active .mascot{left:24%;}
+}
 .pix-kicker{font-family:"Silkscreen",monospace;font-size:clamp(11px,1.7vw,15px);letter-spacing:.14em;color:var(--blue-ink);}
 .jp-hero{font-family:var(--jp);font-weight:700;font-size:clamp(34px,7.4vw,78px);line-height:1.12;letter-spacing:.02em;}
 .hero .lead{font-size:clamp(15px,2vw,18px);max-width:50ch;color:var(--ink);}
@@ -411,8 +436,12 @@ a{color:inherit;}
       </div>
     </div>
     <!-- TUNA の散歩道。画面幅いっぱい使うので .wrap の外に置く -->
-    <div class="mascot-lane">
+    <div class="mascot-lane" id="tunaGame" aria-label="TUNA ハードルジャンプゲーム">
+      <div class="game-hud" aria-live="polite"><span>SCORE <b id="gameScore">0</b></span><span>BEST <b id="gameBest">0</b></span><span id="gameStatus">TAP / SPACE TO JUMP</span></div>
+      <button class="game-start" id="gameStart" type="button">▶ JUMP GAME</button>
+      <button class="game-end" id="gameEnd" type="button">× END</button>
       <div class="mascot" id="mascot" role="img" aria-label="マスコットキャラクター「つな」"></div>
+      <div class="hurdle" id="gameHurdle" aria-hidden="true"></div>
     </div>
   </section>
 
@@ -840,6 +869,92 @@ a{color:inherit;}
       '<text class="mname" x="'+(vw/2)+'" y="'+(vh-3)+'" text-anchor="middle">TUNA</text></svg>';
   })();
 
+  // ---------- TUNA hurdle jump game ----------
+  (function(){
+    var lane=document.getElementById('tunaGame');
+    var tuna=document.getElementById('mascot');
+    var hurdle=document.getElementById('gameHurdle');
+    var start=document.getElementById('gameStart');
+    var end=document.getElementById('gameEnd');
+    var scoreEl=document.getElementById('gameScore');
+    var bestEl=document.getElementById('gameBest');
+    var statusEl=document.getElementById('gameStatus');
+    if(!lane||!tuna||!hurdle||!start)return;
+
+    var playing=false,raf=0,last=0,y=0,vy=0,hurdleX=0,score=0,passed=false;
+    var best=0;
+    try{best=parseInt(localStorage.getItem('neqofab.tuna.best')||'0',10)||0;}catch(e){}
+    bestEl.textContent=best;
+
+    function placeHurdle(){
+      hurdleX=lane.clientWidth+120+Math.random()*260;
+      hurdle.style.transform='translateX('+Math.round(hurdleX)+'px)';
+      passed=false;
+    }
+    function jump(){
+      if(playing&&y<2)vy=520;
+    }
+    function finishGame(){
+      playing=false;
+      cancelAnimationFrame(raf);
+      lane.classList.add('game-over');
+      statusEl.textContent='GAME OVER';
+      start.textContent='↻ RETRY';
+      if(score>best){
+        best=score;bestEl.textContent=best;
+        try{localStorage.setItem('neqofab.tuna.best',String(best));}catch(e){}
+      }
+    }
+    function stopGame(){
+      playing=false;
+      cancelAnimationFrame(raf);
+      lane.classList.remove('game-active','game-over');
+      tuna.style.bottom='';
+      hurdle.style.transform='';
+      start.textContent='▶ JUMP GAME';
+      statusEl.textContent='TAP / SPACE TO JUMP';
+    }
+    function frame(now){
+      if(!playing)return;
+      var dt=Math.min((now-last)/1000,.04);last=now;
+      vy-=1600*dt;y+=vy*dt;
+      if(y<=0){y=0;vy=0;}
+      tuna.style.bottom=Math.round(y)+'px';
+
+      var speed=Math.min(410,245+score*9);
+      hurdleX-=speed*dt;
+      hurdle.style.transform='translateX('+Math.round(hurdleX)+'px)';
+
+      var tr=tuna.getBoundingClientRect(),hr=hurdle.getBoundingClientRect();
+      var hit=tr.right-22>hr.left&&tr.left+22<hr.right&&tr.bottom-10>hr.top+5;
+      if(hit){finishGame();return;}
+      if(!passed&&hr.right<tr.left){
+        passed=true;score+=1;scoreEl.textContent=score;
+        statusEl.textContent=score%5===0?'NICE!':'TAP / SPACE TO JUMP';
+      }
+      if(hr.right<0)placeHurdle();
+      raf=requestAnimationFrame(frame);
+    }
+    function startGame(){
+      cancelAnimationFrame(raf);
+      playing=true;score=0;y=0;vy=0;
+      scoreEl.textContent='0';statusEl.textContent='TAP / SPACE TO JUMP';
+      lane.classList.add('game-active');lane.classList.remove('game-over');
+      tuna.style.bottom='0px';placeHurdle();
+      last=performance.now();raf=requestAnimationFrame(frame);
+    }
+
+    start.addEventListener('click',function(ev){ev.stopPropagation();startGame();});
+    end.addEventListener('click',function(ev){ev.stopPropagation();stopGame();});
+    lane.addEventListener('pointerdown',function(ev){
+      if(ev.target.closest('button'))return;
+      if(playing){ev.preventDefault();jump();}
+    });
+    window.addEventListener('keydown',function(ev){
+      if(!playing||(ev.code!=='Space'&&ev.code!=='ArrowUp'))return;
+      ev.preventDefault();jump();
+    });
+  })();
   // ---------- floating promo（モニター募集・8月限定） ----------
   (function(){
     var el=document.getElementById('promo');if(!el)return;
