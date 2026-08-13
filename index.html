@@ -109,15 +109,15 @@ a{color:inherit;}
     radial-gradient(54% 62% at 66% 98%, color-mix(in srgb, var(--cyan) 14%, transparent), transparent 72%);}
 /* width:100% は必須。.wrap の margin:0 auto が縦フレックスの交差軸で auto マージンとして
    働くため、これが無いと内容幅にすぼまって（1000px → 797px）位置もずれる。
-   order は 産地の行 → 見出し以下 → 散歩道。スマホだけ散歩道を2番目に差し込む。 */
+   order は 産地の行 → 散歩道 → 見出し以下。PCでもスマホでも TUNA を上部に置く。 */
 .hero-geo{position:relative;z-index:1;width:100%;max-width:1000px;order:1;margin-bottom:22px;}
-.hero-in{position:relative;z-index:1;width:100%;max-width:1000px;order:2;}
+.hero-in{position:relative;z-index:1;width:100%;max-width:1000px;order:3;}
 .hero-text{display:grid;gap:22px;min-width:0;}
 
 /* mascot : つな — a weird little pixel creature.
-   ヒーローの下に画面幅いっぱいの「散歩道」を敷き、右の外から左の外へ抜けて、また右から現れる。
+   ヒーロー上部に画面幅いっぱいの「散歩道」を敷き、右の外から左の外へ抜けて、また右から現れる。
    .wrap の外に置いてあるので、帯は常にビューポート幅ぶんある。 */
-.mascot-lane{position:relative;z-index:1;order:3;height:clamp(88px,11vw,124px);margin-top:26px;
+.mascot-lane{position:relative;z-index:1;order:2;height:clamp(88px,11vw,124px);margin:0 0 20px;
   overflow:hidden;pointer-events:none;}
 /* left:50% + translateX が基準。アニメーションが止まる環境（下の prefers-reduced-motion）では
    transform が効かないので、その場合は画面中央あたりに立ったままになる ＝ 消えない。 */
