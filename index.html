@@ -122,8 +122,8 @@ a{color:inherit;}
 /* left:50% + translateX が基準。アニメーションが止まる環境（下の prefers-reduced-motion）では
    transform が効かないので、その場合は画面中央あたりに立ったままになる ＝ 消えない。 */
 .mascot{position:absolute;left:50%;bottom:0;width:clamp(64px,8vw,96px);
-  animation:walk 23.4s steps(26,jump-none) infinite;}
-.mascot svg{display:block;width:100%;height:auto;animation:hop 1.8s steps(1,end) infinite;transform-origin:50% 92%;}
+  transform:translateX(-50%);}
+.mascot svg{display:block;width:100%;height:auto;animation:bob 1.8s steps(1,end) infinite;transform-origin:50% 92%;}
 .mascot rect{shape-rendering:crispEdges;}
 .mascot .mk{fill:var(--ink);}
 .mascot .me{fill:var(--paper);}
@@ -133,6 +133,11 @@ a{color:inherit;}
 .mascot .mc{fill:var(--cyan);}
 .mascot .mm{fill:var(--orange);}
 .mascot .mname{font-family:"Silkscreen",monospace;font-size:9px;letter-spacing:.1em;fill:var(--ink-soft);}
+/* PCでは中央に留まり、上下だけに動く */
+@keyframes bob{
+  0%,100%{transform:translateY(0);}
+  50%{transform:translateY(-8px);}
+}
 /* かくかく: stepped, no interpolation — orthogonal only (up/down/left/right, no diagonal/rotation) */
 @keyframes hop{
   0%  {transform:translate(0,0);}
@@ -162,7 +167,8 @@ a{color:inherit;}
   /* 産地の行（order:1）と 見出し以下（order:3）のあいだに割り込ませる */
   .mascot-lane{order:2;margin:0 0 20px;height:clamp(120px,32vw,152px);}
   .hero-in{order:3;}
-  .mascot{width:clamp(104px,30vw,132px);}
+  .mascot{width:clamp(104px,30vw,132px);animation:walk 23.4s steps(26,jump-none) infinite;}
+  .mascot svg{animation-name:hop;}
 }
 .pix-kicker{font-family:"Silkscreen",monospace;font-size:clamp(11px,1.7vw,15px);letter-spacing:.14em;color:var(--blue-ink);}
 .jp-hero{font-family:var(--jp);font-weight:700;font-size:clamp(34px,7.4vw,78px);line-height:1.12;letter-spacing:.02em;}
