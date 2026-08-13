@@ -106,11 +106,18 @@ a{color:inherit;}
     radial-gradient(46% 58% at 14% 26%, color-mix(in srgb, var(--key) 12%, transparent), transparent 70%),
     radial-gradient(44% 56% at 84% 6%,  color-mix(in srgb, var(--bloom) 14%, transparent), transparent 70%),
     radial-gradient(54% 62% at 66% 98%, color-mix(in srgb, var(--cyan) 14%, transparent), transparent 72%);}
-.hero-in{position:relative;z-index:1;display:grid;grid-template-columns:minmax(0,1fr) clamp(150px,20vw,240px);
-  align-items:center;gap:clamp(20px,4.5vw,56px);max-width:1000px;}
+.hero-in{position:relative;z-index:1;max-width:1000px;}
 .hero-text{display:grid;gap:22px;min-width:0;}
-/* mascot : つな — a weird little pixel creature */
-.mascot{width:100%;justify-self:center;align-self:center;z-index:1;pointer-events:none;}
+
+/* mascot : つな — a weird little pixel creature.
+   ヒーローの下に画面幅いっぱいの「散歩道」を敷き、右の外から左の外へ抜けて、また右から現れる。
+   .wrap の外に置いてあるので、帯は常にビューポート幅ぶんある。 */
+.mascot-lane{position:relative;z-index:1;height:clamp(88px,11vw,124px);margin-top:26px;
+  overflow:hidden;pointer-events:none;}
+/* left:50% + translateX が基準。アニメーションが止まる環境（下の prefers-reduced-motion）では
+   transform が効かないので、その場合は画面中央あたりに立ったままになる ＝ 消えない。 */
+.mascot{position:absolute;left:50%;bottom:0;width:clamp(64px,8vw,96px);
+  animation:walk 23.4s steps(26,end) infinite;}
 .mascot svg{display:block;width:100%;height:auto;animation:hop 1.8s steps(1,end) infinite;transform-origin:50% 92%;}
 .mascot rect{shape-rendering:crispEdges;}
 .mascot .mk{fill:var(--ink);}
@@ -133,9 +140,14 @@ a{color:inherit;}
   88% {transform:translate(6px,0);}    /* right */
   100%{transform:translate(0,0);}      /* back */
 }
-@media(max-width:900px){
-  .hero-in{grid-template-columns:1fr;gap:14px;}
-  .mascot{order:-1;width:clamp(104px,20vw,148px);justify-self:start;}
+/* 横移動も steps で刻む。なめらかに滑らせるとドット絵の質感が壊れるので、1歩ずつワープさせる。
+   26歩 × 0.9秒 = 23.4秒。左端は 1体ぶん余分に行き過ぎさせている（-200%）。
+   steps(n,end) は終端の値を表示しないので、ぴったり -100% にすると
+   左端に半分残ったまま右へワープしてしまい、「消えてから現れる」にならない。
+   余分に歩かせることで、完全に見えなくなる間（約1.8秒）が生まれる。 */
+@keyframes walk{
+  from{transform:translateX(50vw);}                    /* 右端の、すぐ外 */
+  to  {transform:translateX(calc(-50vw - 200%));}      /* 左端の外へ、1体ぶん行き過ぎるまで */
 }
 .pix-kicker{font-family:"Silkscreen",monospace;font-size:clamp(11px,1.7vw,15px);letter-spacing:.14em;color:var(--blue-ink);}
 .jp-hero{font-family:var(--jp);font-weight:700;font-size:clamp(34px,7.4vw,78px);line-height:1.12;letter-spacing:.02em;}
@@ -340,6 +352,9 @@ a{color:inherit;}
         <span class="chip">データがなくてもOK</span>
       </div>
       </div>
+    </div>
+    <!-- TUNA の散歩道。画面幅いっぱい使うので .wrap の外に置く -->
+    <div class="mascot-lane">
       <div class="mascot" id="mascot" role="img" aria-label="マスコットキャラクター「つな」"></div>
     </div>
   </section>
