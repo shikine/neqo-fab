@@ -303,6 +303,33 @@ a{color:inherit;}
 .foot .pix{font-family:"Silkscreen",monospace;font-size:13px;}
 .parent{font-size:11px;color:var(--ink-soft);border:1px dashed var(--line);padding:4px 8px;display:inline-block;}
 
+/* ============ FLOATING PROMO（モニター募集・期間限定） ============ */
+/* 影は使わない（このLPは影なしで通している）。浮きは濃い罫線で出す。 */
+.promo{position:fixed;right:clamp(10px,2vw,24px);bottom:clamp(10px,2vw,24px);z-index:30;
+  width:min(320px,calc(100vw - 20px));border:1px solid var(--ink);padding:18px 18px 15px;
+  background:
+    linear-gradient(150deg,
+      color-mix(in srgb,var(--bloom) 18%,var(--mbody)) 0%,
+      color-mix(in srgb,var(--key) 10%,var(--mbody)) 46%,
+      transparent 82%),
+    var(--paper-2);}
+.promo[hidden]{display:none;}
+/* eyebrow は森緑。キーカラーは押せるもの（＝ボタン）だけに取っておく */
+.promo-eyebrow{font-family:"Silkscreen",monospace;font-size:10px;letter-spacing:.08em;color:var(--blue-ink);}
+.promo-title{font-family:var(--jp);font-weight:700;font-size:19px;margin-top:5px;line-height:1.35;}
+.promo-body{font-size:12.5px;line-height:1.7;margin-top:8px;}
+.promo-cta{width:100%;justify-content:center;margin-top:14px;font-size:12.5px;padding:11px 14px;}
+.promo-note{font-size:11px;line-height:1.65;color:var(--ink-soft);margin-top:11px;}
+.promo-x{position:absolute;top:4px;right:4px;width:30px;height:30px;border:0;background:transparent;
+  color:var(--ink-soft);font-family:inherit;font-size:15px;line-height:1;cursor:pointer;}
+.promo-x:hover{color:var(--ink);}
+.promo-x:focus-visible{outline:2px solid var(--key);outline-offset:-2px;}
+@media(max-width:600px){
+  .promo{right:8px;left:8px;bottom:8px;width:auto;padding:14px 14px 12px;}
+  .promo-title{font-size:17px;}
+  .promo-body{font-size:12px;margin-top:6px;}
+}
+
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
 </style>
@@ -544,6 +571,16 @@ a{color:inherit;}
       </div>
     </div>
   </footer>
+
+  <!-- モニター募集。8月31日(JST)を過ぎたら JS 側で出さない。閉じたら記憶して二度出さない。 -->
+  <aside class="promo" id="promo" hidden aria-labelledby="promoTitle">
+    <button class="promo-x" id="promoX" type="button" aria-label="このお知らせを閉じる">×</button>
+    <div class="promo-eyebrow">MONITOR · AUG 2026</div>
+    <div class="promo-title" id="promoTitle">モニター募集中</div>
+    <p class="promo-body">8月31日まで、<b>費用は材料費のみ</b>でおつくりします。つくってみたいものを、一緒に試させてください。</p>
+    <a href="#contact" class="btn accent promo-cta" id="promoCta">モニターに応募する →</a>
+    <p class="promo-note">できあがったものは、実績として写真で紹介させていただくことがあります。</p>
+  </aside>
 </div>
 
 <script>
@@ -785,6 +822,41 @@ a{color:inherit;}
     var vw=w*c,vh=h*c+16;
     host.innerHTML='<svg viewBox="0 0 '+vw+' '+vh+'" xmlns="http://www.w3.org/2000/svg">'+rects+
       '<text class="mname" x="'+(vw/2)+'" y="'+(vh-3)+'" text-anchor="middle">TUNA</text></svg>';
+  })();
+
+  // ---------- floating promo（モニター募集・8月限定） ----------
+  (function(){
+    var el=document.getElementById('promo');if(!el)return;
+    // 8月31日いっぱいまで。JST 固定なので、閲覧者のタイムゾーンに左右されない。
+    // 期間を過ぎたらバナーも応募の選択肢も出さない ＝ 9月に古い告知が残らない。
+    if(Date.now()>=Date.parse('2026-09-01T00:00:00+09:00'))return;
+
+    // 期間中だけ「相談の種類」にモニターを足す。通知メールでどの経路かが分かる。
+    var type=document.getElementById('cType');
+    if(type){
+      var opt=document.createElement('option');
+      opt.value='モニター応募';
+      opt.textContent='モニター応募（8月限定・材料費のみ）';
+      type.add(opt,1);
+    }
+
+    var STORE='neqofab.promo.monitor.2026-08';
+    var closed=false;
+    try{closed=!!localStorage.getItem(STORE);}catch(e){}   // file:// や制限時は例外になる
+    if(!closed)el.hidden=false;
+
+    document.getElementById('promoX').addEventListener('click',function(){
+      el.hidden=true;
+      try{localStorage.setItem(STORE,'1');}catch(e){}
+    });
+
+    // 応募ボタンを押したら、フォームの「相談の種類」を先に選んでおく
+    document.getElementById('promoCta').addEventListener('click',function(){
+      if(!type)return;
+      for(var i=0;i<type.options.length;i++){
+        if(type.options[i].value==='モニター応募'){type.selectedIndex=i;break;}
+      }
+    });
   })();
 
   window.addEventListener('resize',function(){clearTimeout(window.__rz);window.__rz=setTimeout(function(){drawRidge();},150);});
