@@ -318,6 +318,9 @@ a{color:inherit;}
 .promo-eyebrow{font-family:"Silkscreen",monospace;font-size:10px;letter-spacing:.08em;color:var(--blue-ink);}
 .promo-title{font-family:var(--jp);font-weight:700;font-size:19px;margin-top:5px;line-height:1.35;}
 .promo-body{font-size:12.5px;line-height:1.7;margin-top:8px;}
+/* 条件は本文に混ぜず、FOR カードと同じタグの形にして拾い読みできるようにする */
+.promo-terms{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px;}
+.promo-terms li{font-size:11px;border:1px solid var(--line);padding:3px 8px;color:var(--ink-soft);letter-spacing:.03em;}
 .promo-cta{width:100%;justify-content:center;margin-top:14px;font-size:12.5px;padding:11px 14px;}
 .promo-note{font-size:11px;line-height:1.65;color:var(--ink-soft);margin-top:11px;}
 .promo-x{position:absolute;top:4px;right:4px;width:30px;height:30px;border:0;background:transparent;
@@ -578,6 +581,10 @@ a{color:inherit;}
     <div class="promo-eyebrow">MONITOR · AUG 2026</div>
     <div class="promo-title" id="promoTitle">モニター募集中</div>
     <p class="promo-body">8月31日まで、<b>費用は材料費のみ</b>でおつくりします。つくってみたいものを、一緒に試させてください。</p>
+    <ul class="promo-terms">
+      <li>1点まで</li>
+      <li>大きさは要相談</li>
+    </ul>
     <a href="#contact" class="btn accent promo-cta" id="promoCta">モニターに応募する →</a>
     <p class="promo-note">できあがったものは、実績として写真で紹介させていただくことがあります。</p>
   </aside>
