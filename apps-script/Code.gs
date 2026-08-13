@@ -48,6 +48,55 @@ var COL = { // 1始まり。HEADERS と対応させること
 };
 
 // ============================================================
+// 設置の確認
+// ============================================================
+
+/**
+ * エディタでこの関数を選んで「実行」する。
+ *   1回目 : 権限の承認画面が出るので許可する（カレンダーを読むため）
+ *   2回目 : 設定がそろっているかが実行ログに出る
+ * 予定は作らないので、何度実行しても副作用はない。
+ */
+function checkSetup() {
+  var out = [];
+
+  out.push('CALENDAR_ID : ' + calendarId_());
+  try {
+    out.push('カレンダー : 「' + calendar_().getName() + '」を読めました');
+  } catch (e) {
+    out.push('カレンダー : NG → ' + e);
+  }
+
+  // 詳細サービスが追加されているか。API は呼ばずに存在確認だけする。
+  if (typeof Calendar === 'undefined' || !Calendar.Events) {
+    out.push('Calendar API サービス : 未追加 → エディタ左「サービス」の＋から Google Calendar API を追加');
+  } else {
+    out.push('Calendar API サービス : 追加済み');
+  }
+
+  try {
+    var days = buildSlots_();
+    var total = days.reduce(function (a, d) { return a + d.times.length; }, 0);
+    out.push('空き枠 : ' + days.length + '日ぶん / 合計' + total + '枠');
+    if (days.length) {
+      out.push('  最初の日 : ' + days[0].label + ' → ' +
+        days[0].times.map(function (t) { return t.t; }).join(' '));
+    } else {
+      out.push('  （0件。カレンダーが埋まっているか、受付時間の設定を確認）');
+    }
+  } catch (e) {
+    out.push('空き枠 : NG → ' + e);
+  }
+
+  out.push('通知先 : ' +
+    (PropertiesService.getScriptProperties().getProperty('NOTIFY_TO') || Session.getEffectiveUser().getEmail()));
+
+  var msg = out.join('\n');
+  console.log(msg);
+  return msg;
+}
+
+// ============================================================
 // エントリポイント
 // ============================================================
 
