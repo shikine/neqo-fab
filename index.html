@@ -110,8 +110,8 @@ a{color:inherit;}
     radial-gradient(54% 62% at 66% 98%, color-mix(in srgb, var(--cyan) 14%, transparent), transparent 72%);}
 /* width:100% は必須。.wrap の margin:0 auto が縦フレックスの交差軸で auto マージンとして
    働くため、これが無いと内容幅にすぼまって（1000px → 797px）位置もずれる。
-   order は TUNA → 産地の行 → 見出し以下。視線が中央から自然に本文へ流れる構成。 */
-.hero-geo{position:relative;z-index:1;width:100%;max-width:1000px;order:2;margin-bottom:30px;text-align:center;}
+   order は TUNA → 産地の行 → 見出し以下。PCの産地表示は本文の左ラインに揃える。 */
+.hero-geo{position:relative;z-index:1;width:100%;max-width:1000px;order:2;margin-bottom:30px;text-align:left;}
 .hero-in{position:relative;z-index:1;width:100%;max-width:1000px;order:3;}
 .hero-text{display:grid;gap:22px;min-width:0;}
 
@@ -164,7 +164,7 @@ a{color:inherit;}
    ひとまわり大きくして、上の余白を詰めてページの頭に近づける。 */
 @media(max-width:760px){
   .hero{padding:36px 0 44px;}
-  .hero-geo{order:2;margin-bottom:24px;}
+  .hero-geo{order:2;margin-bottom:24px;text-align:center;}
   .mascot-lane{order:1;margin:0 0 8px;height:clamp(120px,32vw,152px);}
   .hero-in{order:3;}
   .mascot{width:clamp(104px,30vw,132px);animation:walk 23.4s steps(26,jump-none) infinite;}
@@ -387,7 +387,7 @@ a{color:inherit;}
 
   <!-- HERO -->
   <section class="hero">
-    <!-- 産地の行は TUNA の下で中央に置くため、.hero-text から切り出して独立させている -->
+    <!-- 産地の行は TUNA の下に置き、PCでは本文の左ライン、スマホでは中央に揃える -->
     <div class="wrap hero-geo">
       <span class="geo">◾ FUJIMI · NAGANO &nbsp;/&nbsp; <b>八ヶ岳のふもと、標高1000mのものづくり</b></span>
     </div>
