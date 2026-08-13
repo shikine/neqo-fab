@@ -313,12 +313,15 @@ a{color:inherit;}
 /* 影は使わない（このLPは影なしで通している）。浮きは濃い罫線で出す。 */
 .promo{position:fixed;right:clamp(10px,2vw,24px);bottom:clamp(10px,2vw,24px);z-index:30;
   width:min(320px,calc(100vw - 20px));border:1px solid var(--ink);padding:18px 18px 15px;
+  opacity:0;transform:translateY(10px);visibility:hidden;
+  transition:opacity .35s ease,transform .35s ease,visibility .35s;
   background:
     linear-gradient(150deg,
       color-mix(in srgb,var(--bloom) 18%,var(--mbody)) 0%,
       color-mix(in srgb,var(--key) 10%,var(--mbody)) 46%,
       transparent 82%),
     var(--paper-2);}
+.promo.is-visible{opacity:1;transform:translateY(0);visibility:visible;}
 .promo[hidden]{display:none;}
 /* eyebrow は森緑。キーカラーは押せるもの（＝ボタン）だけに取っておく */
 .promo-eyebrow{font-family:"Silkscreen",monospace;font-size:10px;letter-spacing:.08em;color:var(--blue-ink);}
@@ -855,11 +858,33 @@ a{color:inherit;}
 
     var STORE='neqofab.promo.monitor.2026-08';
     var closed=false;
+    var showTimer=0;
+    var dismissed=false;
     try{closed=!!localStorage.getItem(STORE);}catch(e){}   // file:// や制限時は例外になる
-    if(!closed)el.hidden=false;
+    function hidePromo(){
+      dismissed=true;
+      clearTimeout(showTimer);
+      el.classList.remove('is-visible');
+      setTimeout(function(){el.hidden=true;},400);
+    }
+
+    if(!closed){
+      el.hidden=false;
+      // 読み込み直後に主内容を隠さず、0.5秒待ってからふわっと表示する。
+      showTimer=setTimeout(function(){if(!dismissed)el.classList.add('is-visible');},500);
+
+      // 問い合わせセクションが画面に入ったら役目を終え、ふわっと消す。
+      var contact=document.getElementById('contact');
+      if(contact&&'IntersectionObserver' in window){
+        var promoObserver=new IntersectionObserver(function(entries){
+          if(entries[0].isIntersecting){hidePromo();promoObserver.disconnect();}
+        },{threshold:0});
+        promoObserver.observe(contact);
+      }
+    }
 
     document.getElementById('promoX').addEventListener('click',function(){
-      el.hidden=true;
+      hidePromo();
       try{localStorage.setItem(STORE,'1');}catch(e){}
     });
 
