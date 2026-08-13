@@ -1,7 +1,7 @@
 # NEQO FAB — ランディングページ
 
 長野県諏訪郡富士見町のデジタルファブリケーション工房「NEQO FAB（ねこふぁぶ）」のLP。
-NEQO（グッドバイビル2F）のファブ部門。
+NEQO のファブ部門。
 
 - 公開URL: https://shikine.github.io/neqo-fab/
 - 本体は `index.html` の1枚だけ。ビルド不要、依存パッケージなし。
