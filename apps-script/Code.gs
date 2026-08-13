@@ -327,6 +327,13 @@ function handleDecision_(e, action) {
       start: { dateTime: Utilities.formatDate(start, TZ, "yyyy-MM-dd'T'HH:mm:ssXXX"), timeZone: TZ },
       end: { dateTime: Utilities.formatDate(end, TZ, "yyyy-MM-dd'T'HH:mm:ssXXX"), timeZone: TZ },
       attendees: mail ? [{ email: mail }] : [],
+      // 申込者（ゲスト）側では動かせないようにする。
+      // 予定の正本はスプレッドシートなので、相手に日時を書き換えられると食い違う。
+      // なお、カレンダーの所有者自身の編集・削除は Google の仕様上ここでは止められない
+      // （API の locked は読み取り専用）。所有者の操作を検知したい場合は別途トリガーが要る。
+      guestsCanModify: false,
+      guestsCanInviteOthers: false,
+      guestsCanSeeOtherGuests: false,
       conferenceData: {
         createRequest: {
           requestId: Utilities.getUuid(),
