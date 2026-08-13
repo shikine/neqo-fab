@@ -592,7 +592,7 @@ a{color:inherit;}
   // 送信先 = Google Apps Script のウェブアプリ。スプレッドシートに1行追記し、メールで通知する。
   // デプロイして出てきた https://script.google.com/macros/s/..../exec をここに貼る。
   // 空のあいだは送信できず、その旨を画面に出す（黙って失敗させない）。
-  var ENDPOINT='';
+  var ENDPOINT='https://script.google.com/macros/s/AKfycbyHicngCVMmfbtBU1VuuL-Ma7-UckHde8SKVsIocotw_DMFi2eWJaM8SooKTp-mTrR1/exec';
 
   var form=document.getElementById('contactForm');
   var sendBtn=document.getElementById('sendBtn');
@@ -634,15 +634,20 @@ a{color:inherit;}
 
     var label=sendBtn.textContent;
     sendBtn.disabled=true;sendBtn.textContent='送信中…';
-    // mode:'no-cors' なので応答は読めない。Apps Script はリダイレクトを挟むため
-    // CORS 付きで読もうとすると失敗しやすく、投げっぱなしのほうが確実。
-    fetch(ENDPOINT,{method:'POST',mode:'no-cors',body:payload})
-      .then(function(){
+    // あえて mode:'no-cors' を使わない。no-cors だと Apps Script の設定ミスで
+    // ログイン画面にリダイレクトされた場合でも通信は成立し、何も保存されていないのに
+    // 「送信しました」と出てしまう。応答を読める形にして、届いたことを確認してから伝える。
+    // URLSearchParams なので Content-Type は form-urlencoded 扱いになり、
+    // プリフライト（OPTIONS）は飛ばない ＝ Apps Script 側で受けられる。
+    fetch(ENDPOINT,{method:'POST',body:payload})
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        if(!res||!res.ok) throw new Error('rejected');
         say('送信しました','ありがとうございます。内容を確認して、2〜3日以内にご返信します。',false);
         form.reset();
       })
       .catch(function(){
-        say('送信できませんでした','通信に失敗したようです。電波の良い場所で、もう一度お試しください。',true);
+        say('送信できませんでした','お手数ですが、時間をおいてもう一度お試しください。',true);
       })
       .then(function(){ sendBtn.disabled=false;sendBtn.textContent=label; });
   });
