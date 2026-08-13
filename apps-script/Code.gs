@@ -395,15 +395,17 @@ function notify_(row, slotStart, token) {
     '受信日時 : ' + Utilities.formatDate(ts, TZ, 'yyyy/MM/dd HH:mm'),
     '相談の種類 : ' + type,
     'お名前 : ' + name,
-    '所属 : ' + (org || '-'),
-    'メール : ' + mail,
-    '電話 : ' + (tel || '-'),
-    '気になる機材 : ' + (equipment || '-'),
-    '',
-    '--- ご相談内容 ---',
-    message,
-    ''
+    'メール : ' + mail
   ];
+  // 所属・電話・機材はフォームから外したが、過去データのために列は残してある。
+  // 値が入っているときだけ出す（空の「-」が並ぶと読みにくいので）。
+  if (org) lines.push('所属 : ' + org);
+  if (tel) lines.push('電話 : ' + tel);
+  if (equipment) lines.push('気になる機材 : ' + equipment);
+  lines.push('');
+  lines.push('--- ご相談内容 ---');
+  lines.push(message);
+  lines.push('');
 
   if (slotStart) {
     var end = new Date(slotStart.getTime() + MEETING_MINUTES * 60 * 1000);

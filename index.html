@@ -317,9 +317,6 @@ a{color:inherit;}
 .field input:focus,.field select:focus,.field textarea:focus{outline:2px solid var(--key);outline-offset:1px;border-color:var(--key);}
 .field textarea{resize:vertical;min-height:96px;}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-.field-check{display:grid;grid-template-columns:repeat(2,auto);gap:6px 14px;margin-bottom:16px;}
-.field-check label{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--ink);text-transform:none;font-family:inherit;letter-spacing:0;cursor:pointer;}
-.field-check input{width:16px;height:16px;accent-color:var(--key);}
 .form-note{font-size:11px;color:var(--ink-soft);margin-top:10px;line-height:1.5;}
 /* 日程（任意）。既定は閉じていて、チェックで開く */
 .sched{border:1px dashed var(--line);padding:14px;margin-bottom:16px;}
@@ -582,11 +579,7 @@ a{color:inherit;}
       <form class="panel" id="contactForm" novalidate>
         <div class="row2">
           <div class="field"><label for="cName">NAME ／ お名前 *</label><input id="cName" required placeholder="山田 太郎"/></div>
-          <div class="field"><label for="cOrg">COMPANY ／ 所属</label><input id="cOrg" placeholder="任意"/></div>
-        </div>
-        <div class="row2">
           <div class="field"><label for="cMail">EMAIL ／ メール *</label><input id="cMail" type="email" required placeholder="you@example.com"/></div>
-          <div class="field"><label for="cTel">PHONE ／ 電話</label><input id="cTel" inputmode="tel" placeholder="任意"/></div>
         </div>
         <div class="field">
           <label for="cType">TYPE ／ 相談の種類</label>
@@ -598,8 +591,6 @@ a{color:inherit;}
             <option value="お店・仕事で使うもの">お店・仕事で使うもの</option>
           </select>
         </div>
-        <label class="field-check-label" style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);font-family:'Silkscreen',var(--jp),monospace;display:block;margin-bottom:8px;">気になる機材（任意）</label>
-        <div class="field-check" id="eqChecks"></div>
         <div class="field">
           <label for="cMsg">MESSAGE ／ ご相談内容 *</label>
           <textarea id="cMsg" required placeholder="つくりたいもの、用途、数量、納期、予算感など。ざっくりでOKです。"></textarea>
@@ -721,14 +712,6 @@ a{color:inherit;}
   grid.appendChild(etc);
   function recolorIcons(){grid.querySelectorAll('.eq').forEach(function(c){dotIcon(c.querySelector('canvas'),ICONS[c.dataset.id],v('--blue'));});}
 
-  // ---------- contact equipment checkboxes ----------
-  var checks=document.getElementById('eqChecks');
-  EQ.forEach(function(e){
-    var l=document.createElement('label');
-    l.innerHTML='<input type="checkbox" value="'+e.jp+'"> '+e.jp;
-    checks.appendChild(l);
-  });
-
   // ---------- contact form ----------
   // 送信先 = Google Apps Script のウェブアプリ。スプレッドシートに1行追記し、メールで通知する。
   // デプロイして出てきた https://script.google.com/macros/s/..../exec をここに貼る。
@@ -842,15 +825,11 @@ a{color:inherit;}
       }
     }
 
-    var eqs=[].slice.call(checks.querySelectorAll('input:checked')).map(function(c){return c.value;});
     var payload=new URLSearchParams({
       hp:document.getElementById('cHidden').value,   // ハニーポット。埋まっていたら受信側で捨てる
       type:document.getElementById('cType').value,
       name:name,
-      org:document.getElementById('cOrg').value.trim(),
       mail:mail,
-      tel:document.getElementById('cTel').value.trim(),
-      equipment:(eqs.length?eqs.join(' / '):'未定・相談したい'),
       message:msg,
       slot:slot
     });
