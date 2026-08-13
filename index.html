@@ -108,14 +108,16 @@ a{color:inherit;}
     radial-gradient(44% 56% at 84% 6%,  color-mix(in srgb, var(--bloom) 14%, transparent), transparent 70%),
     radial-gradient(54% 62% at 66% 98%, color-mix(in srgb, var(--cyan) 14%, transparent), transparent 72%);}
 /* width:100% は必須。.wrap の margin:0 auto が縦フレックスの交差軸で auto マージンとして
-   働くため、これが無いと内容幅にすぼまって（1000px → 797px）位置もずれる。 */
-.hero-in{position:relative;z-index:1;width:100%;max-width:1000px;}
+   働くため、これが無いと内容幅にすぼまって（1000px → 797px）位置もずれる。
+   order は 産地の行 → 見出し以下 → 散歩道。スマホだけ散歩道を2番目に差し込む。 */
+.hero-geo{position:relative;z-index:1;width:100%;max-width:1000px;order:1;margin-bottom:22px;}
+.hero-in{position:relative;z-index:1;width:100%;max-width:1000px;order:2;}
 .hero-text{display:grid;gap:22px;min-width:0;}
 
 /* mascot : つな — a weird little pixel creature.
    ヒーローの下に画面幅いっぱいの「散歩道」を敷き、右の外から左の外へ抜けて、また右から現れる。
    .wrap の外に置いてあるので、帯は常にビューポート幅ぶんある。 */
-.mascot-lane{position:relative;z-index:1;height:clamp(88px,11vw,124px);margin-top:26px;
+.mascot-lane{position:relative;z-index:1;order:3;height:clamp(88px,11vw,124px);margin-top:26px;
   overflow:hidden;pointer-events:none;}
 /* left:50% + translateX が基準。アニメーションが止まる環境（下の prefers-reduced-motion）では
    transform が効かないので、その場合は画面中央あたりに立ったままになる ＝ 消えない。 */
@@ -156,7 +158,10 @@ a{color:inherit;}
    ひとまわり大きくして、上の余白を詰めてページの頭に近づける。 */
 @media(max-width:760px){
   .hero{padding:36px 0 44px;}
-  .mascot-lane{order:-1;margin:0 0 20px;height:clamp(120px,32vw,152px);}
+  .hero-geo{margin-bottom:14px;}
+  /* 産地の行（order:1）と 見出し以下（order:3）のあいだに割り込ませる */
+  .mascot-lane{order:2;margin:0 0 20px;height:clamp(120px,32vw,152px);}
+  .hero-in{order:3;}
   .mascot{width:clamp(104px,30vw,132px);}
 }
 .pix-kicker{font-family:"Silkscreen",monospace;font-size:clamp(11px,1.7vw,15px);letter-spacing:.14em;color:var(--blue-ink);}
@@ -343,9 +348,12 @@ a{color:inherit;}
 
   <!-- HERO -->
   <section class="hero">
+    <!-- 産地の行は TUNA より上に出したいので、.hero-text から切り出して独立させている -->
+    <div class="wrap hero-geo">
+      <span class="geo">◾ FUJIMI · NAGANO &nbsp;/&nbsp; <b>八ヶ岳のふもと、標高1000mのものづくり</b></span>
+    </div>
     <div class="wrap hero-in">
       <div class="hero-text">
-      <span class="geo">◾ FUJIMI · NAGANO &nbsp;/&nbsp; <b>八ヶ岳のふもと、標高1000mのものづくり</b></span>
       <div class="pix-kicker">3D&nbsp;PRINT · CNC · LASER · 3D&nbsp;SCAN</div>
       <h1 class="jp-hero">暮らしに、<br>ちょうどいいを。</h1>
       <p class="lead">「売ってない」「ちょっと足りない」「世界にひとつがほしい」。暮らしのちょうどいいも、推しのためのグッズも、あなたの代わりにおつくりします。八ヶ岳のふもと、富士見町のオーダーメイド工房。3Dプリンター・CNC・レーザー・3Dスキャナーで、家のちいさな道具から、アクリルスタンド・うちわ文字、つくり手の作品づくりまで。データがなくても、まずは相談から。</p>
