@@ -583,10 +583,10 @@ a{color:inherit;}
           <div><span>HOURS</span>要予約 / 当日相談可</div>
         </div>
       </div>
-      <form class="panel" id="contactForm" novalidate>
+      <form class="panel" id="contactForm" autocomplete="on" novalidate>
         <div class="row2">
-          <div class="field"><label for="cName">NAME ／ お名前 *</label><input id="cName" required placeholder="山田 太郎"/></div>
-          <div class="field"><label for="cMail">EMAIL ／ メール *</label><input id="cMail" type="email" required placeholder="you@example.com"/></div>
+          <div class="field"><label for="cName">NAME ／ お名前 *</label><input id="cName" name="name" type="text" autocomplete="name" autocapitalize="words" required placeholder="山田 太郎"/></div>
+          <div class="field"><label for="cMail">EMAIL ／ メール *</label><input id="cMail" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" required placeholder="you@example.com"/></div>
         </div>
         <div class="field">
           <label for="cType">TYPE ／ 相談の種類</label>
