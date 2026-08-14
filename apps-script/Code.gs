@@ -38,6 +38,7 @@
 var TZ = 'Asia/Tokyo';
 var SHEET_NAME = 'お問い合わせ';
 var MEETING_MINUTES = 60;        // 1回の打ち合わせの長さ
+var MEETING_BUFFER_MINUTES = 60; // Buffer before and after online meetings.
 var LEAD_DAYS = 1;               // 何日先から選べるか（1 = 翌日から）
 var HORIZON_DAYS = 14;           // 何日先まで選べるか
 var DOW_JP = ['日', '月', '火', '水', '木', '金', '土'];
@@ -280,8 +281,11 @@ function buildSlots_() {
       var s = jstAt_(ymd.y, ymd.m, ymd.d, h);
       var e = new Date(s.getTime() + MEETING_MINUTES * 60 * 1000);
       if (s.getTime() <= Date.now()) return;
-      if (overlaps_(s.getTime(), e.getTime(), busy)) return;
-      if (pending.indexOf(s.getTime()) >= 0) return;
+      var bufferMs = MEETING_BUFFER_MINUTES * 60 * 1000;
+      if (overlaps_(s.getTime() - bufferMs, e.getTime() + bufferMs, busy)) return;
+      if (pending.some(function (pendingStart) {
+        return Math.abs(pendingStart - s.getTime()) < (MEETING_MINUTES + MEETING_BUFFER_MINUTES) * 60 * 1000;
+      })) return;
       times.push({
         v: Utilities.formatDate(s, TZ, "yyyy-MM-dd'T'HH:mm:ssXXX"),
         t: Utilities.formatDate(s, TZ, 'HH:mm')
@@ -326,8 +330,13 @@ function isSlotOpen_(start) {
   // 正時ちょうどでない指定は受けない
   if (start.getTime() !== jstAt_(ymd.y, ymd.m, ymd.d, hourJst).getTime()) return false;
 
-  if (overlaps_(start.getTime(), end.getTime(), busyRanges_(start, end))) return false;
-  if (pendingSlotMs_().indexOf(start.getTime()) >= 0) return false;
+  var bufferMs = MEETING_BUFFER_MINUTES * 60 * 1000;
+  if (overlaps_(start.getTime() - bufferMs, end.getTime() + bufferMs, busyRanges_(
+    new Date(start.getTime() - bufferMs), new Date(end.getTime() + bufferMs)
+  ))) return false;
+  if (pendingSlotMs_().some(function (pendingStart) {
+    return Math.abs(pendingStart - start.getTime()) < (MEETING_MINUTES + MEETING_BUFFER_MINUTES) * 60 * 1000;
+  })) return false;
   return true;
 }
 
@@ -366,7 +375,10 @@ function handleDecision_(e, action) {
 
   // 承認。念のためもう一度カレンダーを見る（承認までの間に予定が入ることがある）
   var end = new Date(start.getTime() + MEETING_MINUTES * 60 * 1000);
-  if (overlaps_(start.getTime(), end.getTime(), busyRanges_(start, end))) {
+  var bufferMs = MEETING_BUFFER_MINUTES * 60 * 1000;
+  if (overlaps_(start.getTime() - bufferMs, end.getTime() + bufferMs, busyRanges_(
+    new Date(start.getTime() - bufferMs), new Date(end.getTime() + bufferMs)
+  ))) {
     return page_('この時間には既に予定があります',
       'カレンダーに別の予定が入っています。予定を整理してからもう一度リンクを開くか、メールで日程を調整してください。');
   }
