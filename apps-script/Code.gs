@@ -39,6 +39,9 @@ var TZ = 'Asia/Tokyo';
 var SHEET_NAME = 'お問い合わせ';
 var MEETING_MINUTES = 60;        // 1回の打ち合わせの長さ
 var MEETING_BUFFER_MINUTES = 60; // Buffer before and after online meetings.
+var MEETING_LIMIT_PER_DAY = 1;
+var MEETING_LIMIT_PER_WEEK = 2;
+var MEETING_LIMIT_PER_MONTH = 4;
 var LEAD_DAYS = 1;               // 何日先から選べるか（1 = 翌日から）
 var HORIZON_DAYS = 14;           // 何日先まで選べるか
 var DOW_JP = ['日', '月', '火', '水', '木', '金', '土'];
@@ -135,6 +138,7 @@ function doPost(e) {
 
     var slotIso = (d.slot || '').trim();
     var slotStart = null;
+    var bookingLock = null;
 
     if (slotIso) {
       slotStart = new Date(slotIso);
@@ -143,8 +147,16 @@ function doPost(e) {
       }
       // クライアントの申告は信用しない。いま本当に空いているか毎回サーバ側で確かめる。
       // フォームを開いてから送信するまでに埋まることがあるため。
+      bookingLock = LockService.getScriptLock();
+      bookingLock.waitLock(10000);
       if (!isSlotOpen_(slotStart)) {
+        bookingLock.releaseLock();
         return json({ ok: false, reason: 'slot_taken' });
+      }
+      var meetingLimit = meetingLimitReason_(d.mail || '', slotStart);
+      if (meetingLimit) {
+        bookingLock.releaseLock();
+        return json({ ok: false, reason: 'booking_limit', limit: meetingLimit });
       }
     }
 
@@ -165,6 +177,7 @@ function doPost(e) {
       ''
     ];
     sheet.appendRow(row);
+    if (bookingLock) bookingLock.releaseLock();
 
     // メールが飛ばなくても記録は残す。通知の失敗で受信そのものを落とさない。
     try {
@@ -303,6 +316,44 @@ function buildSlots_() {
   return days;
 }
 
+/** 同じメールアドレスによるオンライン相談の申込上限（日・月曜始まりの週・月）を調べる。 */
+function meetingLimitReason_(mail, start) {
+  var normalizedMail = String(mail || '').trim().toLowerCase();
+  if (!normalizedMail) return 'day';
+
+  var sh = getSheet_();
+  var last = sh.getLastRow();
+  if (last < 2) return '';
+
+  var targetYmd = jstYmd_(start);
+  var dayMs = 24 * 3600 * 1000;
+  var targetDay = jstAt_(targetYmd.y, targetYmd.m, targetYmd.d, 0).getTime();
+  var targetWeek = targetDay - ((jstDow_(start) + 6) % 7) * dayMs;
+  var dayCount = 0, weekCount = 0, monthCount = 0;
+  var values = sh.getRange(2, COL.MAIL, last - 1, COL.STATUS - COL.MAIL + 1).getValues();
+
+  values.forEach(function (row) {
+    if (String(row[0] || '').trim().toLowerCase() !== normalizedMail) return;
+    var status = String(row[COL.STATUS - COL.MAIL] || '');
+    if (status !== '\u627f\u8a8d\u5f85\u3061' && status !== '\u78ba\u5b9a') return;
+    var raw = row[COL.SLOT - COL.MAIL];
+    if (!raw) return;
+    var date = (raw instanceof Date) ? raw : new Date(String(raw).replace(/\//g, '-'));
+    if (isNaN(date.getTime())) return;
+
+    var ymd = jstYmd_(date);
+    var rowDay = jstAt_(ymd.y, ymd.m, ymd.d, 0).getTime();
+    var rowWeek = rowDay - ((jstDow_(date) + 6) % 7) * dayMs;
+    if (rowDay === targetDay) dayCount++;
+    if (rowWeek === targetWeek) weekCount++;
+    if (ymd.y === targetYmd.y && ymd.m === targetYmd.m) monthCount++;
+  });
+
+  if (dayCount >= MEETING_LIMIT_PER_DAY) return 'day';
+  if (weekCount >= MEETING_LIMIT_PER_WEEK) return 'week';
+  if (monthCount >= MEETING_LIMIT_PER_MONTH) return 'month';
+  return '';
+}
 /** 承認待ちで押さえられている開始時刻（ミリ秒）の一覧 */
 function pendingSlotMs_() {
   var sh = getSheet_();

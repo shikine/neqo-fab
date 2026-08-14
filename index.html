@@ -847,6 +847,7 @@ a{color:inherit;}
         // フォームを開いてから送るまでに、その枠が埋まることがある。
         // サーバが弾いた場合は一覧を取り直して、選び直してもらう。
         if(res&&res.reason==='slot_taken'){throw {taken:true};}
+        if(res&&res.reason==='booking_limit'){throw {limit:res.limit||'day'};}
         if(!res||!res.ok) throw new Error('rejected');
         if(res.scheduled){
           say('送信しました','日程のご希望も受け付けました。こちらで確認のうえ、確定のご連絡をします。',false);
@@ -858,6 +859,11 @@ a{color:inherit;}
         slotDays=null;
       })
       .catch(function(err){
+        if(err&&err.limit){
+          var limitText=err.limit==='month'?'同じ月に4回まで':err.limit==='week'?'同じ週に2回まで':'同じ日に1回まで';
+          say('オンライン相談の申込上限です',limitText+'ご予約いただけます。通常のお問い合わせは日程を選ばず何度でも送信できます。',true);
+          return;
+        }
         if(err&&err.taken){
           say('その時間はうまってしまいました','空き状況を更新したので、別の時間を選んでもう一度お試しください。',true);
           loadSlots();
