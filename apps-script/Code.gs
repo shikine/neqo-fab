@@ -203,7 +203,7 @@ function jstAt_(y, m, d, h) {
 /**
  * その曜日に開始できる時刻（時）の一覧。
  *   平日: 6-7 / 10-15 / 22-24 を除く → 7,8,9 と 15..21
- *   土日: 6-7 / 22-24 を除く         → 7..21
+ *   土日: 10-18                         → 10..17
  * 深夜 0-6 はどちらも除外している（指定には無かったが、深夜に予約が入る事故を防ぐため）。
  * ここを変えれば受付時間が変わる。
  */
@@ -211,7 +211,7 @@ function allowedHours_(dow) {
   var hours = [], h;
   var weekend = (dow === 0 || dow === 6);
   if (weekend) {
-    for (h = 7; h < 22; h++) hours.push(h);
+    for (h = 10; h < 18; h++) hours.push(h);
   } else {
     for (h = 7; h < 10; h++) hours.push(h);
     for (h = 15; h < 22; h++) hours.push(h);
