@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ぷくぷくネームキーホルダー ｜ NEQO FAB</title>
+<meta name="description" content="名前を打つだけで、世界に一つのぷくぷく文字キーホルダーをその場でデザイン。プレビューを見ながら、そのまま注文できます。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F3F2EA; --paper-2:#E7E7DA; --ink:#22271F; --ink-soft:#5B5F55;
+  --line:#D5D6C5; --key:#E0703F; --key-ink:#F3F2EA; --bloom:#B87FA3;
+  --blue:#94B184; --sky:#94A886; --dot:#22271F;
+  --jp:"Hiragino Kaku Gothic ProN","Yu Gothic",YuGothic,"Noto Sans JP","Meiryo",sans-serif;
+  --mono:"Space Mono",ui-monospace,Consolas,var(--jp),monospace;
+  --pix:"Silkscreen",var(--jp),monospace;
+  --r:14px;
+}
+:root:not([data-theme="light"]){
+  @media (prefers-color-scheme: dark){
+    --paper:#101410; --paper-2:#181D18; --ink:#ECEFE4; --ink-soft:#98A18F;
+    --line:#262D25; --key:#E0703F; --key-ink:#101410; --bloom:#B78BA6;
+    --dot:#ECEFE4;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#101410; --paper-2:#181D18; --ink:#ECEFE4; --ink-soft:#98A18F;
+  --line:#262D25; --key:#E0703F; --key-ink:#101410; --bloom:#B78BA6; --dot:#ECEFE4;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--paper); color:var(--ink); font-family:var(--jp);
+  -webkit-font-smoothing:antialiased; line-height:1.6;
+}
+a{color:inherit}
+.wrap{max-width:1200px;margin:0 auto;padding:clamp(16px,3vw,32px)}
+header.top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+.brand{font-family:var(--pix);font-size:15px;letter-spacing:.06em}
+.brand b{color:var(--key)}
+.kicker{font-family:var(--mono);font-size:11px;color:var(--ink-soft);letter-spacing:.12em;text-transform:uppercase}
+h1{font-size:clamp(22px,4.2vw,38px);line-height:1.15;margin:.2em 0 .1em;letter-spacing:.01em}
+h1 .em{color:var(--key)}
+.lead{color:var(--ink-soft);font-size:14px;margin:0 0 18px;max-width:56ch}
+
+.app{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.9fr);gap:18px;align-items:start}
+@media(max-width:860px){.app{grid-template-columns:1fr}}
+
+.stage{position:relative;border:1px solid var(--line);border-radius:var(--r);background:
+  radial-gradient(120% 120% at 50% 0%, color-mix(in srgb,var(--paper-2) 70%, transparent), var(--paper));
+  overflow:hidden;min-height:380px}
+#view{display:block;width:100%;height:clamp(340px,52vh,560px);touch-action:none;cursor:grab}
+#view:active{cursor:grabbing}
+.stage .hint{position:absolute;left:12px;bottom:10px;font-family:var(--mono);font-size:10px;
+  color:var(--ink-soft);letter-spacing:.08em;pointer-events:none;opacity:.8}
+.stage .badge{position:absolute;right:12px;top:12px;font-family:var(--pix);font-size:10px;
+  color:var(--key-ink);background:var(--key);padding:4px 8px;border-radius:999px;letter-spacing:.06em}
+.stage .load{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--mono);
+  font-size:12px;color:var(--ink-soft);background:var(--paper);transition:opacity .3s}
+.stage .load.done{opacity:0;pointer-events:none}
+
+.panel{border:1px solid var(--line);border-radius:var(--r);background:var(--paper-2);
+  padding:14px 14px 16px;display:flex;flex-direction:column;gap:14px}
+.panel h2{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-soft);margin:2px 0 -2px;font-weight:700}
+.field{display:flex;flex-direction:column;gap:6px}
+.field>label{font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;align-items:baseline}
+.field>label .val{font-family:var(--mono);color:var(--ink);font-size:11px}
+input[type=text],textarea,select{
+  width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--paper);
+  border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+input[type=text]:focus,textarea:focus,select:focus{outline:2px solid color-mix(in srgb,var(--key) 55%,transparent);outline-offset:1px;border-color:var(--key)}
+textarea{resize:vertical;min-height:64px}
+input[type=range]{width:100%;accent-color:var(--key)}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg button,.chip{font:inherit;font-size:12px;cursor:pointer;border:1px solid var(--line);
+  background:var(--paper);color:var(--ink);border-radius:999px;padding:6px 12px}
+.seg button[aria-pressed=true]{background:var(--key);color:var(--key-ink);border-color:var(--key)}
+.swatches{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.swatch{width:26px;height:26px;border-radius:50%;border:2px solid rgba(0,0,0,.12);cursor:pointer;padding:0}
+.swatch[aria-pressed=true]{outline:2px solid var(--ink);outline-offset:2px}
+.swatch.custom{display:grid;place-items:center;font-size:14px;background:var(--paper);color:var(--ink-soft)}
+input[type=color]{width:0;height:0;opacity:0;position:absolute;pointer-events:none}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink)}
+.toggle input{width:16px;height:16px;accent-color:var(--key)}
+.muted{font-size:11px;color:var(--ink-soft)}
+.warn{font-size:11.5px;color:var(--key);display:none}
+.warn.show{display:block}
+
+.actions{display:flex;flex-direction:column;gap:10px}
+.btn{font:inherit;font-weight:700;cursor:pointer;border-radius:12px;padding:12px 14px;border:1px solid var(--line);
+  background:var(--paper);color:var(--ink);text-align:center}
+.btn.primary{background:var(--key);color:var(--key-ink);border-color:var(--key)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.small{padding:8px 12px;font-weight:400;font-size:12px}
+
+.dims{font-family:var(--mono);font-size:11px;color:var(--ink-soft);display:flex;gap:14px;flex-wrap:wrap}
+.dims b{color:var(--ink);font-weight:700}
+
+/* order dialog */
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--paper);color:var(--ink);
+  padding:0;max-width:520px;width:calc(100% - 28px)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.dlg{padding:18px}
+.dlg h3{margin:0 0 4px;font-size:18px}
+.dlg .sub{color:var(--ink-soft);font-size:12.5px;margin:0 0 14px}
+.summary{display:flex;gap:12px;border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:14px;background:var(--paper-2)}
+.summary img{width:120px;height:74px;object-fit:contain;border-radius:8px;background:var(--paper);border:1px solid var(--line)}
+.summary .meta{font-size:12px;color:var(--ink-soft);display:flex;flex-direction:column;gap:2px}
+.summary .meta b{color:var(--ink);font-size:13px}
+.dlg .field{margin-bottom:10px}
+.sent{border-radius:12px;padding:12px;font-size:13px;display:none}
+.sent.show{display:block}
+.sent.ok{background:color-mix(in srgb,var(--blue) 22%,var(--paper));border:1px solid var(--blue)}
+.sent.err{background:color-mix(in srgb,var(--key) 18%,var(--paper));border:1px solid var(--key)}
+.dlg .foot{display:flex;gap:10px;justify-content:flex-end;margin-top:6px}
+footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
+  font-family:var(--mono);font-size:11px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <span class="brand">NEQO<b>·</b>FAB</span>
+    <span class="kicker">Puff Name Keychain Studio</span>
+  </header>
+  <h1>名前を打つだけ。<span class="em">ぷくぷく</span>キーホルダー。</h1>
+  <p class="lead">文字と色を選ぶと、その場で立体プレビュー。気に入ったら、そのまま注文できます。1文字ずつ膨らんだ「ぷくぷく文字」と、まわりを縁取るぷくぷくフチ。八ヶ岳のふもと・NEQO FAB がひとつずつ作ります。</p>
+
+  <div class="app">
+    <div class="stage">
+      <canvas id="view"></canvas>
+      <span class="badge">LIVE 3D</span>
+      <span class="hint">ドラッグで回転 ／ ホイールでズーム</span>
+      <div class="load" id="load">フォントを読み込んでいます…</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="panel">
+        <h2>文字</h2>
+        <div class="field">
+          <label for="text">名前・言葉 <span class="val" id="textCount"></span></label>
+          <input id="text" type="text" value="なまえ" maxlength="12" autocomplete="off" spellcheck="false">
+          <span class="muted">半角/全角OK。改行は最大2行まで。長すぎると細かくなります。</span>
+          <span class="warn" id="textWarn"></span>
+        </div>
+        <div class="field">
+          <label>書体</label>
+          <div class="seg" id="fontSeg">
+            <button data-font="pop" aria-pressed="true">ポップ体</button>
+            <button data-font="rock" aria-pressed="false">レトロ丸</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="puff">ぷくぷく度 <span class="val" id="puffVal">0.80</span></label>
+          <input id="puff" type="range" min="0.2" max="0.98" step="0.01" value="0.8">
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>色</h2>
+        <div class="field">
+          <label>文字の色</label>
+          <div class="swatches" id="swText"></div>
+        </div>
+        <div class="field">
+          <label>フチの色</label>
+          <div class="swatches" id="swBorder"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>フチ・金具</h2>
+        <div class="field">
+          <label for="border">フチの太さ <span class="val" id="borderVal">2.4 mm</span></label>
+          <input id="border" type="range" min="1" max="6" step="0.1" value="2.4">
+          <span class="muted">文字どうしと金具を1枚につなぐ下地です。太いほど丸く、まわりの余白が増えます。</span>
+        </div>
+        <div class="row">
+          <label class="toggle"><input type="checkbox" id="ring" checked> 金具リング</label>
+          <div class="seg" id="ringSeg">
+            <button data-side="left" aria-pressed="true">左</button>
+            <button data-side="right" aria-pressed="false">右</button>
+          </div>
+        </div>
+        <div class="dims" id="dims"></div>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary" id="orderBtn">この内容で注文にすすむ →</button>
+        <div class="seg" style="justify-content:space-between">
+          <button class="btn small" id="pngBtn">画像を保存</button>
+          <button class="btn small" id="resetBtn">最初の状態に戻す</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span>NEQO FAB ／ 長野県富士見町・標高1000m</span>
+    <span>素材：3Dプリント（PLA/PETG）・多色対応</span>
+  </footer>
+</div>
+
+<dialog id="orderDlg">
+  <form class="dlg" id="orderForm" method="dialog">
+    <h3>注文内容の確認</h3>
+    <p class="sub">下の内容でお送りします。お見積り（送料込みの金額）を確認のうえ、こちらから折り返します。この時点で確定・課金はされません。</p>
+    <div class="summary">
+      <img id="ordImg" alt="プレビュー">
+      <div class="meta" id="ordMeta"></div>
+    </div>
+    <div class="field">
+      <label for="oName">お名前 <span style="color:var(--key)">*</span></label>
+      <input id="oName" type="text" autocomplete="name" required>
+    </div>
+    <div class="field">
+      <label for="oMail">メールアドレス <span style="color:var(--key)">*</span></label>
+      <input id="oMail" type="text" inputmode="email" autocomplete="email" required>
+    </div>
+    <div class="field">
+      <label for="oQty">個数</label>
+      <select id="oQty">
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+        <option>それ以上（本文に記入）</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="oNote">ご要望（任意）</label>
+      <textarea id="oNote" placeholder="納期のご希望、色の細かい指定、キーホルダー金具の色など"></textarea>
+    </div>
+    <input type="text" id="oHidden" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;opacity:0">
+    <div class="sent" id="sent"></div>
+    <div class="foot">
+      <button type="button" class="btn small" id="cancelBtn">やめる</button>
+      <button type="submit" class="btn primary" id="sendBtn">送信する</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js"></script>
+<script src="creator.js"></script>
+</body>
+</html>
