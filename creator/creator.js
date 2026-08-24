@@ -308,11 +308,22 @@
     walk(tree);
     return outers;
   }
+  function circlePath(cx, cy, r, seg) {
+    var p = [];
+    for (var i = 0; i < seg; i++) {
+      var a = 2 * Math.PI * i / seg;
+      p.push({ X: Math.round((cx + r * Math.cos(a)) * SC), Y: Math.round((cy + r * Math.sin(a)) * SC) });
+    }
+    return p;
+  }
+
   // 縁取り＝名前の外周に沿って立ち上がる「器のフチ」。
   // 外シルエット（sil）を内側の縁、それを外へ width 広げた線を外側の縁とする帯。
   // 中央（＝文字が入る領域）は空きにするので、下地プレートではなく“枠/器”になる。
+  // ring 指定時は、フチの端に丸いパッドを一体化し、そこに金具穴を開ける
+  // （＝リングを別部品にせず「外縁だけで処理」する）。
   // round-join オフセットなのでトゲは出ず、字間は橋渡しされて1枚に繋がる。
-  function buildBorderShapes(textContours, width) {
+  function buildBorderShapes(textContours, width, ring) {
     if (width <= 0.01) return null;
     var uni = toClip(textContours);
     var sil = outerSilhouette(uni);          // カウンターを塗った外形（Clipper 整数座標）
@@ -322,28 +333,19 @@
     if (!outer.length) return null;
     var band = differencePaths(outer, inner.length ? inner : sil);
     if (!band.length) return null;
+
+    if (ring) {
+      // フチ端の丸パッド（外側へ張り出し、フチに食い込ませて一体化）
+      var lug = circlePath(ring.cx, ring.cy, ring.rOut, 48);
+      band = unionPaths(band.concat([lug]));   // フチ ∪ パッド
+      var hole = circlePath(ring.cx, ring.cy, ring.rIn, 40);
+      band = differencePaths(band, [hole]);    // 金具穴を開ける
+    }
+
     var contours = band.map(function (p) {
       return p.map(function (pt) { return [pt.X / SC, pt.Y / SC]; });
     });
     return contoursToShapes(contours);
-  }
-
-  // ======================================================================
-  //  リング
-  // ======================================================================
-  function ringMesh(thickness, mat) {
-    var r_in = RING_HOLE / 2, r_out = r_in + RING_WALL;
-    var shape = new THREE.Shape();
-    shape.absarc(0, 0, r_out, 0, Math.PI * 2, false);
-    var hole = new THREE.Path(); hole.absarc(0, 0, r_in, 0, Math.PI * 2, true);
-    shape.holes.push(hole);
-    var geo = new THREE.ExtrudeGeometry(shape, {
-      depth: thickness * 0.8, bevelEnabled: true, bevelThickness: thickness * 0.1,
-      bevelSize: thickness * 0.1, bevelSegments: 3, steps: 1, curveSegments: 24
-    });
-    geo.translate(0, 0, -thickness * 0.5);
-    geo.computeVertexNormals();
-    return new THREE.Mesh(geo, mat);
   }
 
   // ======================================================================
@@ -375,9 +377,19 @@
     var textMat = material(S.textColor);
     var borderMat = material(S.borderColor);
 
-    // フチ＝器の壁。文字より少し高く立ち上げ、底面をそろえて“器”に見せる。
-    var borderShapes = S.border > 0.01 ? buildBorderShapes(lay.contours, S.border) : null;
-    var rimThick = T_TEXT + RIM_LIP;         // 文字より RIM_LIP だけ高い
+    // 金具穴はフチの端に一体化する（別部品にしない）
+    var ringOpt = null;
+    if (S.ring && S.border > 0.01) {
+      var side = (S.ringSide === 'left' ? -1 : 1);
+      var rOut = RING_HOLE / 2 + RING_WALL;
+      var outerEdge = lay.width / 2 + GAP + S.border;   // フチ外端の x
+      var cx = side * (outerEdge + RING_HOLE / 2);       // パッド中心（RING_WALL 分フチに食い込む）
+      ringOpt = { cx: cx, cy: 0, rOut: rOut, rIn: RING_HOLE / 2 };
+    }
+
+    // フチ＝器の壁。底面をそろえ、文字より少し低くして中の文字を盛り上げる。
+    var borderShapes = S.border > 0.01 ? buildBorderShapes(lay.contours, S.border, ringOpt) : null;
+    var rimThick = T_TEXT + RIM_LIP;
     if (borderShapes) {
       var bgeo = puffGeometry(borderShapes, rimThick, Math.min(S.puff, 0.5));
       var bmesh = new THREE.Mesh(bgeo, borderMat);
@@ -394,20 +406,10 @@
     tmesh.castShadow = true; tmesh.receiveShadow = true;
     meshGroup.add(tmesh);
 
-    // リング
+    // 金具穴はフチに含めたので、寸法だけ張り出し分を見込む
     var overall = computeBBox(lay, borderShapes ? S.border + GAP : 0);
     lastBBox = overall;
-    if (S.ring) {
-      var rmesh = ringMesh(borderShapes ? rimThick : T_TEXT, borderShapes ? borderMat : textMat);
-      rmesh.castShadow = true; rmesh.receiveShadow = true;
-      var side = (S.ringSide === 'left' ? -1 : 1);
-      var rx = side * (lay.width / 2 + (borderShapes ? S.border : 0) + RING_HOLE / 2 + RING_WALL * 0.2);
-      // フチにわずかに食い込ませて繋がって見えるように
-      rx -= side * (RING_WALL + (borderShapes ? S.border * 0.4 : 0));
-      rmesh.position.set(rx, 0, borderShapes ? rimThick * 0.5 : 0);
-      meshGroup.add(rmesh);
-      overall.w += RING_HOLE + RING_WALL;
-    }
+    if (ringOpt) overall.w += RING_HOLE + RING_WALL * 2;
 
     meshGroup.position.set(0, 0, 0);
 
