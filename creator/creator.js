@@ -4,10 +4,13 @@
  *   ぷくぷく文字 = フォント輪郭を押し出し（extrude）＋角丸（bevel）。
  *                  総厚み t、ぷくぷく度 puff に対し r=puff*t/2、
  *                  depth=t-2r, bevelThickness=bevelSize=r。addon と同じ断面モデル。
- *   縁取り       = 文字輪郭の集合を Clipper で round-offset した「別体バンド」。
- *                  round-join＝真のミンコフスキー和なので、addon で悩んだ
- *                  鋭角のトゲが原理的に出ない。文字の下に板は敷かない。
- *   金具リング   = 端に置く円環。
+ *   縁取り       = 名前の外シルエットを Clipper で round-offset した「器のフチ」。
+ *                  外周をなぞる帯（中央は文字が入る空き）で、文字とのあいだに
+ *                  “堀”（GAP）を設けて文字がフチに潰されないようにする。
+ *                  round-join＝真のミンコフスキー和なので鋭角のトゲが出ない。
+ *                  下に板は敷かない。フチは文字より少し低く（RIM_LIP<0）して、
+ *                  中のぷくぷく文字が丸く盛り上がって見えるようにする。
+ *   金具リング   = 端に置く円環。フチに一体化させる。
  *
  * すべて mm を Three の 1 単位として扱う。
  */
@@ -34,9 +37,10 @@
   // 固定寸法（mm）
   var SIZE = 20;          // 文字の em サイズ
   var T_TEXT = 3.0;       // 文字の厚み
-  var T_BORDER = 2.4;     // フチの厚み
-  var GAP = 0.0;          // 文字とフチの隙間（0=くっつく）
+  var T_BORDER = 2.4;     // （旧）未使用。フチ厚は T_TEXT + RIM_LIP
+  var GAP = 0.7;          // 文字とフチの間の“堀”。0だと内壁が文字に食い込んで潰れて見える
   var RING_HOLE = 4.0, RING_WALL = 2.2;
+  var RIM_LIP = -0.8;     // フチと文字の高さ差 mm（負=フチが低い→文字がぷくっと盛り上がる）
   var LETTER_SPACING = 0.06;   // em 比
   var LINE_GAP = 1.02;         // 行送り（em比）
 
@@ -274,20 +278,51 @@
     co.Execute(sol, delta * SC);
     return sol;
   }
-  // 縁取り＝文字群のシルエットを外へ丸オフセットした「下地プレート」。
-  // round-join オフセットなので鋭角のトゲが出ず、字間は自然に橋渡しされて
-  // 1枚に繋がる（プリント時に分離しない）。文字の内側の穴（カウンター）は
-  // 塗りつぶし、下地色がのぞく＝参照写真と同じ見え方。
+  function differencePaths(subj, clip) {
+    var cp = new ClipperLib.Clipper();
+    cp.AddPaths(subj, ClipperLib.PolyType.ptSubject, true);
+    cp.AddPaths(clip, ClipperLib.PolyType.ptClip, true);
+    var sol = new ClipperLib.Paths();
+    cp.Execute(ClipperLib.ClipType.ctDifference, sol,
+      ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+    return sol;
+  }
+  // 文字群の「外シルエット」＝内側の穴（カウンター）を塗りつぶした塗り面。
+  // Union の PolyTree から外郭ノードだけ拾えば、カウンターは自然に埋まる。
+  function outerSilhouette(paths) {
+    var cp = new ClipperLib.Clipper();
+    cp.AddPaths(paths, ClipperLib.PolyType.ptSubject, true);
+    var tree = new ClipperLib.PolyTree();
+    cp.Execute(ClipperLib.ClipType.ctUnion, tree,
+      ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+    var outers = [];
+    function poly(n) { return (typeof n.Contour === 'function') ? n.Contour() : (n.m_polygon || n.Contour); }
+    function kids(n) { return (typeof n.Childs === 'function') ? n.Childs() : (n.m_Childs || []); }
+    function isHole(n) { return (typeof n.IsHole === 'function') ? n.IsHole() : n.IsHole; }
+    function walk(n) {
+      kids(n).forEach(function (c) {
+        if (!isHole(c)) { var p = poly(c); if (p && p.length > 2) outers.push(p); }
+        walk(c);
+      });
+    }
+    walk(tree);
+    return outers;
+  }
+  // 縁取り＝名前の外周に沿って立ち上がる「器のフチ」。
+  // 外シルエット（sil）を内側の縁、それを外へ width 広げた線を外側の縁とする帯。
+  // 中央（＝文字が入る領域）は空きにするので、下地プレートではなく“枠/器”になる。
+  // round-join オフセットなのでトゲは出ず、字間は橋渡しされて1枚に繋がる。
   function buildBorderShapes(textContours, width) {
     if (width <= 0.01) return null;
-    var uni = unionPaths(toClip(textContours));
-    var outer = offsetPaths(uni, GAP + width);
+    var uni = toClip(textContours);
+    var sil = outerSilhouette(uni);          // カウンターを塗った外形（Clipper 整数座標）
+    if (!sil.length) return null;
+    var inner = offsetPaths(sil, GAP);       // フチ内側（文字にわずかな隙間）
+    var outer = offsetPaths(sil, GAP + width); // フチ外側
     if (!outer.length) return null;
-    // 小さなカウンター穴を塩化（close）して塗りにする: +δ して -δ
-    var d = Math.min(width, 1.2);
-    var closed = offsetPaths(offsetPaths(outer, d), -d);
-    var use = closed.length ? closed : outer;
-    var contours = use.map(function (p) {
+    var band = differencePaths(outer, inner.length ? inner : sil);
+    if (!band.length) return null;
+    var contours = band.map(function (p) {
       return p.map(function (pt) { return [pt.X / SC, pt.Y / SC]; });
     });
     return contoursToShapes(contours);
@@ -340,22 +375,22 @@
     var textMat = material(S.textColor);
     var borderMat = material(S.borderColor);
 
-    // フチ（下・別体）
+    // フチ＝器の壁。文字より少し高く立ち上げ、底面をそろえて“器”に見せる。
     var borderShapes = S.border > 0.01 ? buildBorderShapes(lay.contours, S.border) : null;
-    var borderZ = 0;
+    var rimThick = T_TEXT + RIM_LIP;         // 文字より RIM_LIP だけ高い
     if (borderShapes) {
-      var bgeo = puffGeometry(borderShapes, T_BORDER, Math.min(S.puff, 0.9));
+      var bgeo = puffGeometry(borderShapes, rimThick, Math.min(S.puff, 0.5));
       var bmesh = new THREE.Mesh(bgeo, borderMat);
-      bmesh.position.z = 0;
+      bmesh.position.z = rimThick * 0.5;     // 底面を z=0 にそろえる
       bmesh.castShadow = true; bmesh.receiveShadow = true;
       meshGroup.add(bmesh);
     }
 
-    // 文字（上）。フチがあれば少し持ち上げて重ねる
+    // 文字。フチと同じ底面（z=0）に置き、器の中に納まって見えるように。
     var textShapes = contoursToShapes(lay.contours);
     var tgeo = puffGeometry(textShapes, T_TEXT, S.puff);
     var tmesh = new THREE.Mesh(tgeo, textMat);
-    tmesh.position.z = borderShapes ? (T_BORDER * 0.5) : 0;
+    tmesh.position.z = borderShapes ? (T_TEXT * 0.5) : 0;
     tmesh.castShadow = true; tmesh.receiveShadow = true;
     meshGroup.add(tmesh);
 
@@ -363,23 +398,22 @@
     var overall = computeBBox(lay, borderShapes ? S.border + GAP : 0);
     lastBBox = overall;
     if (S.ring) {
-      var rmesh = ringMesh(borderShapes ? T_BORDER : T_TEXT, borderShapes ? borderMat : textMat);
+      var rmesh = ringMesh(borderShapes ? rimThick : T_TEXT, borderShapes ? borderMat : textMat);
       rmesh.castShadow = true; rmesh.receiveShadow = true;
       var side = (S.ringSide === 'left' ? -1 : 1);
       var rx = side * (lay.width / 2 + (borderShapes ? S.border : 0) + RING_HOLE / 2 + RING_WALL * 0.2);
       // フチにわずかに食い込ませて繋がって見えるように
       rx -= side * (RING_WALL + (borderShapes ? S.border * 0.4 : 0));
-      rmesh.position.set(rx, 0, 0);
+      rmesh.position.set(rx, 0, borderShapes ? rimThick * 0.5 : 0);
       meshGroup.add(rmesh);
       overall.w += RING_HOLE + RING_WALL;
     }
 
     meshGroup.position.set(0, 0, 0);
 
-    // 背面シャドウキャッチャーを配置
-    var totalT = (borderShapes ? T_BORDER : 0) + T_TEXT;
+    // 背面シャドウキャッチャー（底面 z=0 のさらに裏に置く）
     shadowPlane.scale.set(Math.max(overall.w, overall.h) * 2.0, Math.max(overall.w, overall.h) * 2.0, 1);
-    shadowPlane.position.set(0, 0, -totalT * 0.5 - 1.2);
+    shadowPlane.position.set(0, 0, -1.2);
 
     lastFit = overall;
     fitCamera(overall);
@@ -419,7 +453,7 @@
 
   function updateDims(bb) {
     var el = document.getElementById('dims');
-    var th = (S.border > 0.01 ? T_BORDER : 0) + T_TEXT;
+    var th = (S.border > 0.01 ? Math.max(T_TEXT, T_TEXT + RIM_LIP) : T_TEXT);
     el.innerHTML =
       '横 <b>' + Math.round(bb.w) + '</b> mm　' +
       '縦 <b>' + Math.round(bb.h) + '</b> mm　' +
@@ -559,13 +593,13 @@
       v: 1, text: S.text, font: S.font, puff: +S.puff.toFixed(2),
       textColor: S.textColor, borderColor: S.borderColor,
       border: +S.border.toFixed(1), ring: S.ring, ringSide: S.ringSide,
-      t_text: T_TEXT, t_border: T_BORDER
+      t_text: T_TEXT, t_rim: T_TEXT + RIM_LIP
     };
   }
 
   function specText() {
     var bb = lastBBox || { w: 0, h: 0 };
-    var th = (S.border > 0.01 ? T_BORDER : 0) + T_TEXT;
+    var th = (S.border > 0.01 ? Math.max(T_TEXT, T_TEXT + RIM_LIP) : T_TEXT);
     return [
       '■ ぷくぷくキーホルダー 注文',
       '文字: ' + JSON.stringify(S.text),
@@ -585,7 +619,7 @@
   function openOrder() {
     document.getElementById('ordImg').src = previewDataURL(360);
     var bb = lastBBox || { w: 0, h: 0 };
-    var th = (S.border > 0.01 ? T_BORDER : 0) + T_TEXT;
+    var th = (S.border > 0.01 ? Math.max(T_TEXT, T_TEXT + RIM_LIP) : T_TEXT);
     document.getElementById('ordMeta').innerHTML =
       '<b>' + escapeHtml(S.text.replace(/\n/g, ' ')) + '</b>' +
       '<span>' + FONTS[S.font].label + '／ぷくぷく ' + S.puff.toFixed(2) + '</span>' +
