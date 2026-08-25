@@ -736,6 +736,52 @@
     initOrder();
   }
 
+  function initMobileInputVisibility() {
+    var controls = document.querySelector('.controls');
+    var viewport = window.visualViewport;
+    var timers = [];
+
+    function activeControl() {
+      var el = document.activeElement;
+      if (!el || !controls.contains(el)) return null;
+      return el.matches('input[type="text"],textarea,select') ? el : null;
+    }
+
+    function revealActiveControl() {
+      if (!window.matchMedia('(max-width:640px)').matches) return;
+      var el = activeControl();
+      var stage = document.querySelector('.stage');
+      var viewTop = viewport ? viewport.offsetTop : 0;
+      var viewHeight = viewport ? viewport.height : window.innerHeight;
+      document.body.classList.toggle('mobile-input-tight', !!el && viewHeight < 420);
+      if (!el || !stage) return;
+
+      var stageBottom = stage.getBoundingClientRect().bottom;
+      var safeTop = Math.max(viewTop + 10, stageBottom + 10);
+      var safeBottom = viewTop + viewHeight - 12;
+      var rect = el.getBoundingClientRect();
+      if (safeBottom <= safeTop || (rect.top >= safeTop && rect.bottom <= safeBottom)) return;
+
+      var room = Math.max(0, safeBottom - safeTop - rect.height);
+      var targetTop = safeTop + Math.min(28, room / 2);
+      window.scrollBy(0, rect.top - targetTop);
+    }
+
+    function scheduleReveal() {
+      timers.forEach(function (id) { window.clearTimeout(id); });
+      timers = [60, 240, 520].map(function (delay) {
+        return window.setTimeout(revealActiveControl, delay);
+      });
+    }
+
+    controls.addEventListener('focusin', scheduleReveal);
+    controls.addEventListener('focusout', scheduleReveal);
+    if (viewport) {
+      viewport.addEventListener('resize', scheduleReveal);
+      viewport.addEventListener('scroll', scheduleReveal);
+    }
+  }
+
   function syncSeg(segId, attr, val) {
     document.getElementById(segId).querySelectorAll('button').forEach(function (b) {
       b.setAttribute('aria-pressed', b.dataset[attr] === val ? 'true' : 'false');
@@ -1074,6 +1120,7 @@
   function boot() {
     resize();
     initUI();
+    initMobileInputVisibility();
     updateCampaignUI();
     initPaymentReturn();
     ensureFonts(neededFontKeys(DEFAULTS.font, DEFAULTS.text), function () {
