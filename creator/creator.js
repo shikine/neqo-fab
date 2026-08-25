@@ -255,15 +255,12 @@
     geo.computeVertexNormals();
     return geo;
   }
-  // 平板（お皿の底）。bevel 無しで面数を抑える。上端に軽い面取りだけ付ける。
+  // 平板（お皿の底）。天面はフラット（面取り無し）＝壁との境界に段が出ないようにする。
   function plateGeometry(shapes, thickness) {
-    var r = Math.min(0.25, thickness * 0.25);
-    var depth = Math.max(0.01, thickness - 2 * r);
     var geo = new THREE.ExtrudeGeometry(shapes, {
-      depth: depth, bevelEnabled: true, bevelThickness: r, bevelSize: r,
-      bevelSegments: 1, steps: 1, curveSegments: 4
+      depth: thickness, bevelEnabled: false, steps: 1, curveSegments: 4
     });
-    geo.translate(0, 0, -depth / 2 - r);
+    geo.translate(0, 0, -thickness / 2);
     geo.computeVertexNormals();
     return geo;
   }
@@ -410,15 +407,18 @@
     var borderShapes = S.border > 0.01 ? buildBorderShapes(lay.contours, S.border, ringOpt) : null;
     var floorTop = borderShapes ? FLOOR : 0;   // 文字が乗る面
     if (borderShapes) {
-      var fgeo = plateGeometry(borderShapes.floor, FLOOR);  // 底：平板
+      var fgeo = plateGeometry(borderShapes.floor, FLOOR);  // 底：平板・天面フラット
       var fmesh = new THREE.Mesh(fgeo, borderMat);
       fmesh.position.z = FLOOR * 0.5;
       fmesh.castShadow = true; fmesh.receiveShadow = true;
       meshGroup.add(fmesh);
 
-      var wgeo = puffGeometry(borderShapes.rim, WALL, Math.min(S.puff, 0.5));  // 壁
+      // 壁は底の一番下(z=0)から全高で立てる＝底面と一体化し、境界(z=FLOOR)は
+      // 垂直な内壁のまま（面取りが出ない）。上端だけぷくっと丸める。
+      var rimTop = FLOOR + WALL;
+      var wgeo = puffGeometry(borderShapes.rim, rimTop, Math.min(S.puff, 0.5));
       var wmesh = new THREE.Mesh(wgeo, borderMat);
-      wmesh.position.z = FLOOR + WALL * 0.5;   // 底の上に立てる
+      wmesh.position.z = rimTop * 0.5;
       wmesh.castShadow = true; wmesh.receiveShadow = true;
       meshGroup.add(wmesh);
 
