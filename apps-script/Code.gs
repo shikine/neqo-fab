@@ -643,7 +643,10 @@ function confirmOrder_(name, mail, previewPng, slug) {
 /** ファイル名用に危険な文字を除去。 */
 function sanitizeSlug_(s) {
   if (!s) return '';
-  return String(s).replace(/[^\w぀-ヿ一-龯-]/g, '').slice(0, 24);
+  // 日本語・英数字に加え、ハングル字母／完成形音節も保存名に残す。
+  return String(s).replace(
+    /[^\w぀-ヿ一-龯\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uAC00-\uD7AF\uD7B0-\uD7FF\uFFA0-\uFFDC-]/g,
+    '').slice(0, 24);
 }
 
 // ============================================================

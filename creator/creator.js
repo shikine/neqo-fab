@@ -17,10 +17,20 @@
 (function () {
   'use strict';
 
+  // 書体（スタイル）ごとに、日本語系(_jp)とハングル系(_ko)のフォントを持つ。
+  // 文字ごとに字形を持つフォントへ自動フォールバックする（日英韓の混在OK）。
   var FONTS = {
-    pop:  { url: 'fonts/MochiyPopOne-Regular.ttf', label: 'ポップ体' },
-    rock: { url: 'fonts/RocknRollOne-Regular.ttf', label: 'レトロ丸' }
+    pop:  { label: 'ポップ体', jp: 'fonts/MochiyPopOne-Regular.ttf', ko: 'fonts/Jua-Regular.ttf' },
+    rock: { label: 'レトロ丸', jp: 'fonts/RocknRollOne-Regular.ttf', ko: 'fonts/BlackHanSans-Regular.ttf' }
   };
+  function fontUrl(key) {   // key 例: 'pop_jp'
+    var m = key.split('_'); return FONTS[m[0]][m[1]];
+  }
+  function isHangul(ch) {
+    var c = ch.charCodeAt(0);
+    return (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x1100 && c <= 0x11FF) ||
+           (c >= 0x3130 && c <= 0x318F) || (c >= 0xA960 && c <= 0xA97F);
+  }
 
   var PALETTE = [
     ['#FFFFFF', 'ホワイト'], ['#F7C1D4', 'ももいろ'], ['#F2969B', 'コーラル'],
@@ -151,9 +161,33 @@
     return { contours: contours, advance: glyph.advanceWidth * scale };
   }
 
+  function hasGlyph(font, ch) { return font && font.charToGlyph(ch).index !== 0; }
+  // 文字 ch に使うフォントを選ぶ。ハングルは _ko を優先、無ければ _jp、
+  // それも無ければ他スタイルへ。読み込み済みのものだけから選ぶ。
+  function pickFont(style, ch) {
+    var pref = isHangul(ch) ? (style + '_ko') : (style + '_jp');
+    var order = [pref, style + '_jp', style + '_ko',
+                 'pop_jp', 'rock_jp', 'pop_ko', 'rock_ko'];
+    for (var i = 0; i < order.length; i++) {
+      var f = fontCache[order[i]];
+      if (hasGlyph(f, ch)) return f;
+    }
+    for (var k in fontCache) if (fontCache[k]) return fontCache[k];
+    return null;
+  }
+  // text の描画に必要なフォントキー集合（プリロード用）。基準として style_jp は常に含める。
+  function neededFontKeys(style, text) {
+    var set = {};
+    set[style + '_jp'] = true;
+    Array.from(text).forEach(function (ch) {
+      if (ch === ' ' || ch === '　' || ch === '\n') return;
+      set[isHangul(ch) ? (style + '_ko') : (style + '_jp')] = true;
+    });
+    return Object.keys(set);
+  }
+
   // 文字列レイアウト → 全グリフの輪郭（mm, 中央原点）
-  function layoutText(font, text) {
-    var scale = SIZE / font.unitsPerEm;
+  function layoutText(style, text) {
     var curveSteps = 6;
     var lines = text.split('\n').slice(0, 2);
     var lineH = SIZE * LINE_GAP;
@@ -167,6 +201,8 @@
       var contours = [];
       chars.forEach(function (ch) {
         if (ch === ' ' || ch === '　') { penX += SIZE * 0.5; return; }
+        var font = pickFont(style, ch);
+        if (!font) return;
         var g = glyphContours(font, ch, penX, 0, curveSteps);  // penX は mm
         g.contours.forEach(function (c) { contours.push(c); });
         penX += g.advance + SIZE * LETTER_SPACING;
@@ -384,12 +420,16 @@
   }
 
   function rebuild() {
-    if (!fontCache[S.font]) return;
-    var font = fontCache[S.font];
+    var text = sanitize(S.text);
+    // この文字列に必要なフォントが未読なら読み込んでから作り直す
+    var keys = neededFontKeys(S.font, text);
+    var missing = keys.filter(function (k) { return !fontCache[k]; });
+    if (missing.length) { ensureFonts(missing, function () { rebuild(); }); return; }
+
     clearGroup(meshGroup);
     borderMesh = null; textMesh = null;
 
-    var lay = layoutText(font, sanitize(S.text));
+    var lay = layoutText(S.font, text);
     if (!lay.contours.length) { invalidate(); return; }
 
     var textMat = material(S.textColor);
@@ -524,8 +564,7 @@
         seg.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', 'false'); });
         btn.setAttribute('aria-pressed', 'true');
         S[prop] = btn.dataset[attr];
-        if (prop === 'font') ensureFont(S.font, rebuild);
-        else rebuild();
+        rebuild();   // 必要なフォントは rebuild 内で読み込む
       });
     });
   }
@@ -582,7 +621,7 @@
       syncSeg('fontSeg', 'font', S.font); syncSeg('ringSeg', 'side', S.ringSide);
       buildSwatches('swText', 'textColor'); buildSwatches('swBorder', 'borderColor');
       updateTextCount();
-      ensureFont(S.font, rebuild);
+      rebuild();
     });
 
     document.getElementById('pngBtn').addEventListener('click', savePNG);
@@ -766,22 +805,28 @@
     return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
 
   // ======================================================================
-  //  フォント読み込み
+  //  フォント読み込み（キー例: 'pop_jp' / 'rock_ko'）
   // ======================================================================
-  function ensureFont(which, cb) {
-    if (fontCache[which]) { cb && cb(); return; }
-    opentype.load(FONTS[which].url, function (err, font) {
-      if (err) { console.error('font load failed', which, err);
-        document.getElementById('load').textContent = 'フォントの読み込みに失敗しました'; return; }
-      fontCache[which] = font;
-      cb && cb();
+  function ensureFonts(keys, cb) {
+    var pending = 0, done = false;
+    function finish() { if (!done && pending === 0) { done = true; cb && cb(); } }
+    keys.forEach(function (k) {
+      if (fontCache[k]) return;
+      pending++;
+      opentype.load(fontUrl(k), function (err, font) {
+        pending--;
+        if (err) { console.error('font load failed', k, err); }
+        else { fontCache[k] = font; }
+        finish();
+      });
     });
+    finish();  // すべて読込済みなら即時
   }
 
   function boot() {
     resize();
     initUI();
-    ensureFont(DEFAULTS.font, function () {
+    ensureFonts(neededFontKeys(DEFAULTS.font, DEFAULTS.text), function () {
       document.getElementById('load').classList.add('done');
       requestAnimationFrame(function () { resize(); rebuild();
         requestAnimationFrame(function () { resize(); }); });
