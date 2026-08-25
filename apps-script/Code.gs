@@ -179,11 +179,23 @@ function doPost(e) {
     sheet.appendRow(row);
     if (bookingLock) bookingLock.releaseLock();
 
+    // ぷくぷくキーホルダー注文なら、部品データ（STL）を管理者メールに添付し、
+    // 注文者には完成予想図（PNG）を送る。失敗しても記録・受信は落とさない。
+    var adminAttachments = [];
+    try { adminAttachments = buildOrderAttachments_(d); } catch (e) { console.error('attach build failed: ' + e); }
+
     // メールが飛ばなくても記録は残す。通知の失敗で受信そのものを落とさない。
     try {
-      notify_(row, slotStart, token);
+      notify_(row, slotStart, token, adminAttachments);
     } catch (mailErr) {
       console.error('notify failed: ' + mailErr);
+    }
+
+    // 注文者への自動返信（完成予想図つき）。任意項目なので失敗は無視。
+    try {
+      if (d.previewPng) confirmOrder_(d.name || '', d.mail || '', d.previewPng, d.slug || '');
+    } catch (e) {
+      console.error('order confirm mail failed: ' + e);
     }
 
     return json({ ok: true, scheduled: !!slotStart });
@@ -503,7 +515,7 @@ function handleDecision_(e, action) {
 // 通知メール
 // ============================================================
 
-function notify_(row, slotStart, token) {
+function notify_(row, slotStart, token, attachments) {
   var to = PropertiesService.getScriptProperties().getProperty('NOTIFY_TO')
         || Session.getEffectiveUser().getEmail();
   if (!to) return;
@@ -552,14 +564,86 @@ function notify_(row, slotStart, token) {
   lines.push('------');
   lines.push('スプレッドシート : ' + SpreadsheetApp.getActiveSpreadsheet().getUrl());
 
+  if (attachments && attachments.length) {
+    lines.push('------');
+    lines.push('▼ 製造データ（このメールに添付）');
+    lines.push('・フチ（お皿）部品と文字部品を別々の STL で添付しています。');
+    lines.push('・2色でそれぞれ出力し、重ねて組み合わせると完成します（同じ原点・同じ向き）。');
+    lines.push('');
+  }
+
   var options = {
     to: to,
     subject: '【NEQO FAB】' + (slotStart ? '日程の承認依頼' : '新しい相談') + ' / ' + (name || 'お名前なし'),
     body: lines.join('\n')
   };
+  if (attachments && attachments.length) options.attachments = attachments;
   // そのまま返信すれば相談者に届くようにしておく
   if (mail && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) options.replyTo = mail;
   MailApp.sendEmail(options);
+}
+
+// ============================================================
+// ぷくぷくキーホルダー注文：添付データと注文者への自動返信
+// ============================================================
+
+/** data URL または生 base64 を Blob に。失敗時は null。 */
+function decodeToBlob_(data, mime, filename) {
+  if (!data) return null;
+  var b64 = String(data);
+  var comma = b64.indexOf(',');
+  if (b64.slice(0, 5) === 'data:' && comma >= 0) b64 = b64.slice(comma + 1);
+  try {
+    var bytes = Utilities.base64Decode(b64);
+    return Utilities.newBlob(bytes, mime, filename);
+  } catch (e) {
+    console.error('decode failed for ' + filename + ': ' + e);
+    return null;
+  }
+}
+
+/** 管理者メールに添付する部品STL（＋確認用PNG）の配列を作る。 */
+function buildOrderAttachments_(d) {
+  var out = [];
+  var slug = sanitizeSlug_(d.slug) || 'keychain';
+  var border = decodeToBlob_(d.borderStl, 'model/stl', slug + '_border.stl');
+  var letters = decodeToBlob_(d.lettersStl, 'model/stl', slug + '_letters.stl');
+  var png = decodeToBlob_(d.previewPng, 'image/png', slug + '_preview.png');
+  if (border) out.push(border);
+  if (letters) out.push(letters);
+  if (png) out.push(png);
+  return out;
+}
+
+/** 注文者への自動返信（完成予想図PNGを添付）。 */
+function confirmOrder_(name, mail, previewPng, slug) {
+  if (!mail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return;
+  var png = decodeToBlob_(previewPng, 'image/png', (sanitizeSlug_(slug) || 'keychain') + '_preview.png');
+  var replyTo = PropertiesService.getScriptProperties().getProperty('NOTIFY_TO')
+             || Session.getEffectiveUser().getEmail();
+  var body = [
+    (name ? name + ' 様' : 'ご注文ありがとうございます'),
+    '',
+    'ぷくぷくネームキーホルダーのご注文を受け付けました。',
+    '完成予想図を添付しています。',
+    '',
+    '内容を確認して、2〜3日以内にお見積り（送料込みの金額）をご返信します。',
+    'この時点では確定・課金はされていません。金額をご確認のうえ、お進みください。',
+    '',
+    'ご不明な点は、このメールにそのままご返信ください。',
+    '',
+    '— NEQO FAB（長野県富士見町）'
+  ].join('\n');
+  var options = { name: 'NEQO FAB', body: body };
+  if (png) options.attachments = [png];
+  if (replyTo) options.replyTo = replyTo;
+  MailApp.sendEmail(mail, '【NEQO FAB】ご注文を受け付けました（完成予想図つき）', body, options);
+}
+
+/** ファイル名用に危険な文字を除去。 */
+function sanitizeSlug_(s) {
+  if (!s) return '';
+  return String(s).replace(/[^\w぀-ヿ一-龯-]/g, '').slice(0, 24);
 }
 
 // ============================================================

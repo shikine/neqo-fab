@@ -4,13 +4,13 @@
  *   ぷくぷく文字 = フォント輪郭を押し出し（extrude）＋角丸（bevel）。
  *                  総厚み t、ぷくぷく度 puff に対し r=puff*t/2、
  *                  depth=t-2r, bevelThickness=bevelSize=r。addon と同じ断面モデル。
- *   縁取り       = 名前の外シルエットを Clipper で round-offset した「器のフチ」。
- *                  外周をなぞる帯（中央は文字が入る空き）で、文字とのあいだに
- *                  “堀”（GAP）を設けて文字がフチに潰されないようにする。
+ *   縁取り       = 名前の外シルエットを Clipper で round-offset した「お皿状のフチ」。
+ *                  底(floor)＋外周に立つ壁(rim)で、文字は底の上に乗る。
+ *                  文字と壁のあいだに“堀”(GAP)を設けて潰れを防ぐ。
  *                  round-join＝真のミンコフスキー和なので鋭角のトゲが出ない。
- *                  下に板は敷かない。フチは文字より少し低く（RIM_LIP<0）して、
- *                  中のぷくぷく文字が丸く盛り上がって見えるようにする。
- *   金具リング   = 端に置く円環。フチに一体化させる。
+ *                  底があるので全体が1体化し、2部品に分けても組み合わせて完成する。
+ *   金具リング   = フチ端に丸パッドを一体化し、穴を開ける（外縁だけで処理）。
+ *   注文時       = フチ部品／文字部品の STL と完成予想 PNG を書き出して送信する。
  *
  * すべて mm を Three の 1 単位として扱う。
  */
@@ -40,7 +40,8 @@
   var T_BORDER = 2.4;     // （旧）未使用。フチ厚は T_TEXT + RIM_LIP
   var GAP = 0.7;          // 文字とフチの間の“堀”。0だと内壁が文字に食い込んで潰れて見える
   var RING_HOLE = 4.0, RING_WALL = 2.2;
-  var RIM_LIP = -0.8;     // フチと文字の高さ差 mm（負=フチが低い→文字がぷくっと盛り上がる）
+  var FLOOR = 1.2;        // お皿の底の厚み mm（フチ部品の底面）。文字はこの上に乗る
+  var WALL = 1.4;         // 底から立ち上がる壁の高さ mm（お皿のフチ）
   var LETTER_SPACING = 0.06;   // em 比
   var LINE_GAP = 1.02;         // 行送り（em比）
 
@@ -87,6 +88,7 @@
   scene.add(root);
   var meshGroup = new THREE.Group();
   root.add(meshGroup);
+  var borderMesh = null, textMesh = null;   // 出力用に保持
 
   // 背面のシャドウキャッチャー（白背景に浮かせず接地させる）
   var shadowPlane = new THREE.Mesh(
@@ -152,7 +154,7 @@
   // 文字列レイアウト → 全グリフの輪郭（mm, 中央原点）
   function layoutText(font, text) {
     var scale = SIZE / font.unitsPerEm;
-    var curveSteps = 10;
+    var curveSteps = 6;
     var lines = text.split('\n').slice(0, 2);
     var lineH = SIZE * LINE_GAP;
     var lineContours = [];   // 各行: 輪郭配列（ベースライン基準・Y上向き）
@@ -247,9 +249,21 @@
     var depth = Math.max(0.01, thickness - 2 * r);
     var geo = new THREE.ExtrudeGeometry(shapes, {
       depth: depth, bevelEnabled: true, bevelThickness: r, bevelSize: r,
-      bevelSegments: 4, steps: 1, curveSegments: 6
+      bevelSegments: 3, steps: 1, curveSegments: 4
     });
     geo.translate(0, 0, -depth / 2 - r);   // 厚み中心を z=0 に
+    geo.computeVertexNormals();
+    return geo;
+  }
+  // 平板（お皿の底）。bevel 無しで面数を抑える。上端に軽い面取りだけ付ける。
+  function plateGeometry(shapes, thickness) {
+    var r = Math.min(0.25, thickness * 0.25);
+    var depth = Math.max(0.01, thickness - 2 * r);
+    var geo = new THREE.ExtrudeGeometry(shapes, {
+      depth: depth, bevelEnabled: true, bevelThickness: r, bevelSize: r,
+      bevelSegments: 1, steps: 1, curveSegments: 4
+    });
+    geo.translate(0, 0, -depth / 2 - r);
     geo.computeVertexNormals();
     return geo;
   }
@@ -323,29 +337,33 @@
   // ring 指定時は、フチの端に丸いパッドを一体化し、そこに金具穴を開ける
   // （＝リングを別部品にせず「外縁だけで処理」する）。
   // round-join オフセットなのでトゲは出ず、字間は橋渡しされて1枚に繋がる。
+  function pathsToShapes(paths) {
+    return contoursToShapes(paths.map(function (p) {
+      return p.map(function (pt) { return [pt.X / SC, pt.Y / SC]; });
+    }));
+  }
+
+  // お皿状フチ。floor=底（外形いっぱいの塗り面）、rim=底の外周に立つ壁（帯）。
+  // どちらにも金具パッド＋穴を一体化する（＝金具は外縁だけで処理）。
   function buildBorderShapes(textContours, width, ring) {
     if (width <= 0.01) return null;
     var uni = toClip(textContours);
-    var sil = outerSilhouette(uni);          // カウンターを塗った外形（Clipper 整数座標）
+    var sil = outerSilhouette(uni);            // カウンターを塗った外形
     if (!sil.length) return null;
-    var inner = offsetPaths(sil, GAP);       // フチ内側（文字にわずかな隙間）
-    var outer = offsetPaths(sil, GAP + width); // フチ外側
+    var inner = offsetPaths(sil, GAP);         // 壁の内側（＝底の内寄り）
+    var outer = offsetPaths(sil, GAP + width); // 皿の外形
     if (!outer.length) return null;
     var band = differencePaths(outer, inner.length ? inner : sil);
     if (!band.length) return null;
 
+    var floor = outer;                          // 底は外形いっぱいの塗り面
     if (ring) {
-      // フチ端の丸パッド（外側へ張り出し、フチに食い込ませて一体化）
       var lug = circlePath(ring.cx, ring.cy, ring.rOut, 48);
-      band = unionPaths(band.concat([lug]));   // フチ ∪ パッド
       var hole = circlePath(ring.cx, ring.cy, ring.rIn, 40);
-      band = differencePaths(band, [hole]);    // 金具穴を開ける
+      floor = differencePaths(unionPaths(floor.concat([lug])), [hole]);
+      band = differencePaths(unionPaths(band.concat([lug])), [hole]);
     }
-
-    var contours = band.map(function (p) {
-      return p.map(function (pt) { return [pt.X / SC, pt.Y / SC]; });
-    });
-    return contoursToShapes(contours);
+    return { floor: pathsToShapes(floor), rim: pathsToShapes(band) };
   }
 
   // ======================================================================
@@ -370,6 +388,7 @@
     if (!fontCache[S.font]) return;
     var font = fontCache[S.font];
     clearGroup(meshGroup);
+    borderMesh = null; textMesh = null;
 
     var lay = layoutText(font, sanitize(S.text));
     if (!lay.contours.length) { invalidate(); return; }
@@ -387,24 +406,33 @@
       ringOpt = { cx: cx, cy: 0, rOut: rOut, rIn: RING_HOLE / 2 };
     }
 
-    // フチ＝器の壁。底面をそろえ、文字より少し低くして中の文字を盛り上げる。
+    // フチ＝お皿。底(floor)＋外周の壁(rim)。底面は z=0。
     var borderShapes = S.border > 0.01 ? buildBorderShapes(lay.contours, S.border, ringOpt) : null;
-    var rimThick = T_TEXT + RIM_LIP;
+    var floorTop = borderShapes ? FLOOR : 0;   // 文字が乗る面
     if (borderShapes) {
-      var bgeo = puffGeometry(borderShapes, rimThick, Math.min(S.puff, 0.5));
-      var bmesh = new THREE.Mesh(bgeo, borderMat);
-      bmesh.position.z = rimThick * 0.5;     // 底面を z=0 にそろえる
-      bmesh.castShadow = true; bmesh.receiveShadow = true;
-      meshGroup.add(bmesh);
+      var fgeo = plateGeometry(borderShapes.floor, FLOOR);  // 底：平板
+      var fmesh = new THREE.Mesh(fgeo, borderMat);
+      fmesh.position.z = FLOOR * 0.5;
+      fmesh.castShadow = true; fmesh.receiveShadow = true;
+      meshGroup.add(fmesh);
+
+      var wgeo = puffGeometry(borderShapes.rim, WALL, Math.min(S.puff, 0.5));  // 壁
+      var wmesh = new THREE.Mesh(wgeo, borderMat);
+      wmesh.position.z = FLOOR + WALL * 0.5;   // 底の上に立てる
+      wmesh.castShadow = true; wmesh.receiveShadow = true;
+      meshGroup.add(wmesh);
+
+      borderMesh = [fmesh, wmesh];
     }
 
-    // 文字。フチと同じ底面（z=0）に置き、器の中に納まって見えるように。
+    // 文字。お皿の底の上（z=floorTop）に乗せる。
     var textShapes = contoursToShapes(lay.contours);
     var tgeo = puffGeometry(textShapes, T_TEXT, S.puff);
     var tmesh = new THREE.Mesh(tgeo, textMat);
-    tmesh.position.z = borderShapes ? (T_TEXT * 0.5) : 0;
+    tmesh.position.z = floorTop + T_TEXT * 0.5;
     tmesh.castShadow = true; tmesh.receiveShadow = true;
     meshGroup.add(tmesh);
+    textMesh = tmesh;
 
     // 金具穴はフチに含めたので、寸法だけ張り出し分を見込む
     var overall = computeBBox(lay, borderShapes ? S.border + GAP : 0);
@@ -455,7 +483,7 @@
 
   function updateDims(bb) {
     var el = document.getElementById('dims');
-    var th = (S.border > 0.01 ? Math.max(T_TEXT, T_TEXT + RIM_LIP) : T_TEXT);
+    var th = (S.border > 0.01 ? (FLOOR + T_TEXT) : T_TEXT);
     el.innerHTML =
       '横 <b>' + Math.round(bb.w) + '</b> mm　' +
       '縦 <b>' + Math.round(bb.h) + '</b> mm　' +
@@ -590,18 +618,60 @@
     return c.toDataURL(type || 'image/png', q);
   }
 
+  // ---- STL 書き出し（部品ごと・ワールド座標） ----
+  function meshTriangles(mesh) {
+    mesh.updateWorldMatrix(true, false);
+    var g = mesh.geometry, pos = g.attributes.position, idx = g.index, m = mesh.matrixWorld;
+    var tris = [];
+    var a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    function v(i, out) { return out.fromBufferAttribute(pos, i).applyMatrix4(m); }
+    var count = idx ? idx.count : pos.count;
+    for (var i = 0; i < count; i += 3) {
+      var i0 = idx ? idx.getX(i) : i, i1 = idx ? idx.getX(i + 1) : i + 1, i2 = idx ? idx.getX(i + 2) : i + 2;
+      tris.push([v(i0, a).clone(), v(i1, b).clone(), v(i2, c).clone()]);
+    }
+    return tris;
+  }
+  function trisToStl(tris) {
+    var n = tris.length, buf = new ArrayBuffer(84 + n * 50), dv = new DataView(buf), off = 84;
+    dv.setUint32(80, n, true);
+    var ab = new THREE.Vector3(), ac = new THREE.Vector3(), nr = new THREE.Vector3();
+    for (var t = 0; t < n; t++) {
+      var p = tris[t];
+      ab.subVectors(p[1], p[0]); ac.subVectors(p[2], p[0]); nr.crossVectors(ab, ac);
+      if (nr.lengthSq() > 0) nr.normalize();
+      dv.setFloat32(off, nr.x, true); dv.setFloat32(off + 4, nr.y, true); dv.setFloat32(off + 8, nr.z, true); off += 12;
+      for (var k = 0; k < 3; k++) { dv.setFloat32(off, p[k].x, true); dv.setFloat32(off + 4, p[k].y, true); dv.setFloat32(off + 8, p[k].z, true); off += 12; }
+      off += 2;
+    }
+    return new Uint8Array(buf);
+  }
+  function u8ToBase64(u8) {
+    var s = '', CH = 0x8000;
+    for (var i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+    return btoa(s);
+  }
+  function meshStlBase64(meshOrArr) {
+    if (!meshOrArr) return '';
+    var list = Array.isArray(meshOrArr) ? meshOrArr : [meshOrArr];
+    var tris = [];
+    list.forEach(function (m) { if (m) tris = tris.concat(meshTriangles(m)); });
+    if (!tris.length) return '';
+    return u8ToBase64(trisToStl(tris));
+  }
+
   function compactSpec() {
     return {
       v: 1, text: S.text, font: S.font, puff: +S.puff.toFixed(2),
       textColor: S.textColor, borderColor: S.borderColor,
       border: +S.border.toFixed(1), ring: S.ring, ringSide: S.ringSide,
-      t_text: T_TEXT, t_rim: T_TEXT + RIM_LIP
+      t_text: T_TEXT, t_floor: FLOOR, t_wall: WALL
     };
   }
 
   function specText() {
     var bb = lastBBox || { w: 0, h: 0 };
-    var th = (S.border > 0.01 ? Math.max(T_TEXT, T_TEXT + RIM_LIP) : T_TEXT);
+    var th = (S.border > 0.01 ? (FLOOR + T_TEXT) : T_TEXT);
     return [
       '■ ぷくぷくキーホルダー 注文',
       '文字: ' + JSON.stringify(S.text),
@@ -621,7 +691,7 @@
   function openOrder() {
     document.getElementById('ordImg').src = previewDataURL(360);
     var bb = lastBBox || { w: 0, h: 0 };
-    var th = (S.border > 0.01 ? Math.max(T_TEXT, T_TEXT + RIM_LIP) : T_TEXT);
+    var th = (S.border > 0.01 ? (FLOOR + T_TEXT) : T_TEXT);
     document.getElementById('ordMeta').innerHTML =
       '<b>' + escapeHtml(S.text.replace(/\n/g, ' ')) + '</b>' +
       '<span>' + FONTS[S.font].label + '／ぷくぷく ' + S.puff.toFixed(2) + '</span>' +
@@ -656,16 +726,27 @@
       '\n\nSPEC=' + JSON.stringify(compactSpec()) +
       '\n（このメールは neqo-fab クリエイターから自動送信されています）';
 
-    // プレビューは小さめ JPEG（Sheets のセル上限5万文字に収める）
+    var btn = document.getElementById('sendBtn');
+    var label = btn.textContent; btn.disabled = true; btn.textContent = '出力中…';
+
+    // 部品STL（フチ／文字）と完成予想PNGを生成
+    rebuild();                          // 念のため最新化
+    var slug = sanitize(S.text).replace(/\s+/g, '').slice(0, 20) || 'name';
+    var borderStl = meshStlBase64(borderMesh);   // お皿（底＋壁＋金具）
+    var lettersStl = meshStlBase64(textMesh);    // 文字
+    var previewPng = previewDataURL(640, 'image/png');
+
     var payload = new URLSearchParams({
       hp: document.getElementById('oHidden').value,
       type: 'ぷくぷくキーホルダー注文',
       name: name, mail: mail, message: message,
-      preview: previewDataURL(360, 'image/jpeg', 0.62)
+      slug: slug,
+      previewPng: previewPng,    // 管理者＆注文者へ添付する完成予想図
+      borderStl: borderStl,      // 管理者へ添付：フチ（お皿）部品
+      lettersStl: lettersStl     // 管理者へ添付：文字部品
     });
 
-    var btn = document.getElementById('sendBtn');
-    var label = btn.textContent; btn.disabled = true; btn.textContent = '送信中…';
+    btn.textContent = '送信中…';
     fetch(ENDPOINT, { method: 'POST', body: payload })
       .then(function (r) { return r.json(); })
       .then(function (res) {
