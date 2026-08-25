@@ -33,6 +33,9 @@
  *                IDの調べ方: Googleカレンダー → 対象カレンダーの「設定と共有」
  *                → 「カレンダーの統合」の中の「カレンダーID」
  *                （例: abc...@group.calendar.google.com）
+ *   STRIPE_SECRET_KEY  Stripe のシークレットキー。最初は必ず sk_test_... を設定する。
+ *   STRIPE_MODE        test または live。未設定時は test。live は明示設定時だけ許可。
+ *   STRIPE_SHIPPING_YEN 国内一律送料（円）。0円の場合も必ず「0」と設定する。
  */
 
 var TZ = 'Asia/Tokyo';
@@ -48,11 +51,13 @@ var DOW_JP = ['日', '月', '火', '水', '木', '金', '土'];
 
 var HEADERS = [
   '受信日時', '相談の種類', 'お名前', '所属', 'メール', '電話', '気になる機材', 'ご相談内容',
-  '希望日時', 'ステータス', '承認トークン', 'カレンダーID'
+  '希望日時', 'ステータス', '承認トークン', 'カレンダーID',
+  '注文ID', '材料量(g)', '単価', '個数', '決済状態', 'Stripe Session'
 ];
 var COL = { // 1始まり。HEADERS と対応させること
   TS: 1, TYPE: 2, NAME: 3, ORG: 4, MAIL: 5, TEL: 6, EQUIP: 7, MSG: 8,
-  SLOT: 9, STATUS: 10, TOKEN: 11, EVENT: 12
+  SLOT: 9, STATUS: 10, TOKEN: 11, EVENT: 12,
+  ORDER_ID: 13, GRAMS: 14, UNIT_PRICE: 15, QTY: 16, PAYMENT: 17, STRIPE_SESSION: 18
 };
 
 // ============================================================
@@ -125,6 +130,15 @@ function doGet(e) {
     return handleDecision_(e, action);
   }
 
+  if (action === 'paymentStatus') {
+    try {
+      return json(paymentStatus_(e.parameter.session_id || ''));
+    } catch (err) {
+      console.error('payment status failed: ' + err);
+      return json({ ok: false, error: 'payment_status_failed' });
+    }
+  }
+
   return json({ ok: true, service: 'NEQO FAB contact' });
 }
 
@@ -162,6 +176,10 @@ function doPost(e) {
 
     var sheet = getSheet_();
     var token = slotStart ? Utilities.getUuid() : '';
+    var isOrder = (d.type === 'ぷくぷくキーホルダー注文');
+    var wantsCheckout = isOrder && String(d.checkout || '') === '1';
+    var quote = wantsCheckout ? calculateOrderQuote_(d) : null;
+    var orderId = isOrder ? Utilities.getUuid() : '';
     var row = [
       new Date(),
       d.type || '',
@@ -174,10 +192,32 @@ function doPost(e) {
       slotStart ? Utilities.formatDate(slotStart, TZ, 'yyyy/MM/dd HH:mm') : '',
       slotStart ? '承認待ち' : '',
       token,
+      '',
+      orderId,
+      quote ? quote.grams : '',
+      quote ? quote.unitPriceYen : '',
+      quote ? quote.qty : '',
+      quote ? '決済待ち' : '',
       ''
     ];
     sheet.appendRow(row);
+    var rowIndex = sheet.getLastRow();
     if (bookingLock) bookingLock.releaseLock();
+
+    // 注文記録を先に残してから、Stripe のホスト型決済画面を作る。
+    // Stripe キーはスクリプトプロパティからだけ読み、ソースやブラウザへは返さない。
+    var checkout = null;
+    if (quote) {
+      try {
+        checkout = createCheckoutSession_(d, quote, orderId);
+        sheet.getRange(rowIndex, COL.STRIPE_SESSION).setValue(checkout.id || '');
+        row[COL.STRIPE_SESSION - 1] = checkout.id || '';
+      } catch (checkoutErr) {
+        sheet.getRange(rowIndex, COL.PAYMENT).setValue('決済作成エラー');
+        row[COL.PAYMENT - 1] = '決済作成エラー';
+        console.error('checkout create failed: ' + checkoutErr);
+      }
+    }
 
     // ぷくぷくキーホルダー注文なら、部品データ（STL）を管理者メールに添付し、
     // 注文者には完成予想図（PNG）を送る。失敗しても記録・受信は落とさない。
@@ -193,12 +233,25 @@ function doPost(e) {
 
     // 注文者への自動返信（完成予想図つき）。任意項目なので失敗は無視。
     try {
-      if (d.previewPng) confirmOrder_(d.name || '', d.mail || '', d.previewPng, d.slug || '');
+      if (d.previewPng && (!quote || checkout)) {
+        confirmOrder_(d.name || '', d.mail || '', d.previewPng, d.slug || '');
+      }
     } catch (e) {
       console.error('order confirm mail failed: ' + e);
     }
 
-    return json({ ok: true, scheduled: !!slotStart });
+    if (quote && !checkout) {
+      return json({ ok: false, reason: 'checkout_unavailable', orderId: orderId });
+    }
+    return json({
+      ok: true,
+      scheduled: !!slotStart,
+      orderId: orderId || undefined,
+      checkoutUrl: checkout ? checkout.url : undefined,
+      unitPriceYen: quote ? quote.unitPriceYen : undefined,
+      shippingYen: quote ? quote.shippingYen : undefined,
+      totalYen: quote ? quote.totalYen : undefined
+    });
   } catch (err) {
     console.error(err);
     return json({ ok: false, error: String(err) });
@@ -537,6 +590,12 @@ function notify_(row, slotStart, token, attachments) {
   if (org) lines.push('所属 : ' + org);
   if (tel) lines.push('電話 : ' + tel);
   if (equipment) lines.push('気になる機材 : ' + equipment);
+  if (row[COL.ORDER_ID - 1]) {
+    lines.push('注文ID : ' + row[COL.ORDER_ID - 1]);
+    lines.push('材料量 : ' + row[COL.GRAMS - 1] + ' g');
+    lines.push('単価 : ¥' + row[COL.UNIT_PRICE - 1] + ' × ' + row[COL.QTY - 1] + '個');
+    lines.push('決済状態 : ' + row[COL.PAYMENT - 1]);
+  }
   lines.push('');
   lines.push('--- ご相談内容 ---');
   lines.push(message);
@@ -574,7 +633,7 @@ function notify_(row, slotStart, token, attachments) {
 
   var options = {
     to: to,
-    subject: '【NEQO FAB】' + (slotStart ? '日程の承認依頼' : '新しい相談') + ' / ' + (name || 'お名前なし'),
+    subject: '【NEQO FAB】' + (row[COL.ORDER_ID - 1] ? '新しい注文' : (slotStart ? '日程の承認依頼' : '新しい相談')) + ' / ' + (name || 'お名前なし'),
     body: lines.join('\n')
   };
   if (attachments && attachments.length) options.attachments = attachments;
@@ -586,6 +645,170 @@ function notify_(row, slotStart, token, attachments) {
 // ============================================================
 // ぷくぷくキーホルダー注文：添付データと注文者への自動返信
 // ============================================================
+
+var ORDER_PLA_DENSITY = 1.24;
+var ORDER_MATERIAL_MARGIN = 1.08;
+var ORDER_JOB_OVERHEAD_G = 0.35;
+var ORDER_FLOOR_MM = 1.2;
+var ORDER_WALL_MM = 1.4;
+var ORDER_BASE_YEN = 700;
+var ORDER_YEN_PER_GRAM = 50;
+var ORDER_MINIMUM_YEN = 900;
+var ORDER_ROUND_YEN = 100;
+var CREATOR_URL = 'https://shikine.github.io/neqo-fab/creator/';
+
+/** data URL から base64 本体だけを取り出す。 */
+function base64Body_(data) {
+  var s = String(data || '');
+  var comma = s.indexOf(',');
+  return (s.slice(0, 5) === 'data:' && comma >= 0) ? s.slice(comma + 1) : s;
+}
+
+/** ブラウザが生成した binary STL の閉メッシュ体積を mm³ で求める。 */
+function stlVolumeMm3_(data) {
+  var b64 = base64Body_(data);
+  if (!b64 || b64.length > 12 * 1024 * 1024) throw new Error('bad_stl_size');
+  var signed = Utilities.base64Decode(b64);
+  if (signed.length < 84) throw new Error('bad_stl_header');
+  var u8 = new Uint8Array(signed.length);
+  for (var i = 0; i < signed.length; i++) u8[i] = signed[i] & 255;
+  var dv = new DataView(u8.buffer);
+  var triangles = dv.getUint32(80, true);
+  if (!triangles || 84 + triangles * 50 > u8.length) throw new Error('bad_stl_triangles');
+
+  var sum = 0;
+  function f(off) { return dv.getFloat32(off, true); }
+  for (var t = 0; t < triangles; t++) {
+    var p = 84 + t * 50 + 12;
+    var ax = f(p), ay = f(p + 4), az = f(p + 8);
+    var bx = f(p + 12), by = f(p + 16), bz = f(p + 20);
+    var cx = f(p + 24), cy = f(p + 28), cz = f(p + 32);
+    sum += (ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) + az * (bx * cy - by * cx)) / 6;
+  }
+  var volume = Math.abs(sum);
+  if (!isFinite(volume) || volume <= 0) throw new Error('bad_stl_volume');
+  return volume;
+}
+
+/** クライアントの申告価格を信用せず、送られた製造STLからサーバー側で再計算する。 */
+function calculateOrderQuote_(d) {
+  var qty = parseInt(d.qty, 10);
+  if (!isFinite(qty) || qty < 1 || qty > 5) throw new Error('bad_quantity');
+  var textMm3 = stlVolumeMm3_(d.lettersStl);
+  var floorMm3 = stlVolumeMm3_(d.floorStl);
+  var rimMm3 = stlVolumeMm3_(d.rimStl);
+  // 底と壁は重なっているため、スライサーで一体化される重複分を二重計上しない。
+  var borderMm3 = floorMm3 + rimMm3 * (ORDER_WALL_MM / (ORDER_FLOOR_MM + ORDER_WALL_MM));
+  var textG = textMm3 / 1000 * ORDER_PLA_DENSITY * ORDER_MATERIAL_MARGIN + ORDER_JOB_OVERHEAD_G;
+  var borderG = borderMm3 / 1000 * ORDER_PLA_DENSITY * ORDER_MATERIAL_MARGIN + ORDER_JOB_OVERHEAD_G;
+  var grams = textG + borderG;
+  if (!isFinite(grams) || grams < 0.5 || grams > 250) throw new Error('bad_material_amount');
+
+  var raw = Math.max(ORDER_MINIMUM_YEN, ORDER_BASE_YEN + grams * ORDER_YEN_PER_GRAM);
+  var unit = Math.ceil(raw / ORDER_ROUND_YEN) * ORDER_ROUND_YEN;
+  var shippingRaw = PropertiesService.getScriptProperties().getProperty('STRIPE_SHIPPING_YEN');
+  if (shippingRaw === null) throw new Error('shipping_not_configured');
+  var shipping = parseInt(shippingRaw, 10);
+  if (!isFinite(shipping) || shipping < 0 || shipping > 5000) throw new Error('bad_shipping');
+  return {
+    qty: qty,
+    grams: Math.round(grams * 10) / 10,
+    unitPriceYen: unit,
+    shippingYen: shipping,
+    totalYen: unit * qty + shipping
+  };
+}
+
+function stripeConfig_() {
+  var props = PropertiesService.getScriptProperties();
+  var key = String(props.getProperty('STRIPE_SECRET_KEY') || '').trim();
+  var mode = String(props.getProperty('STRIPE_MODE') || 'test').toLowerCase();
+  if (mode !== 'test' && mode !== 'live') throw new Error('bad_stripe_mode');
+  if (mode === 'test' && key.indexOf('sk_test_') !== 0) throw new Error('stripe_test_key_required');
+  if (mode === 'live' && key.indexOf('sk_live_') !== 0) throw new Error('stripe_live_key_required');
+  return { key: key, mode: mode };
+}
+
+function stripeRequest_(method, path, payload, idempotencyKey) {
+  var cfg = stripeConfig_();
+  var options = {
+    method: method,
+    headers: { Authorization: 'Bearer ' + cfg.key },
+    muteHttpExceptions: true
+  };
+  if (payload) options.payload = payload;
+  if (idempotencyKey) options.headers['Idempotency-Key'] = idempotencyKey;
+  var res = UrlFetchApp.fetch('https://api.stripe.com' + path, options);
+  var code = res.getResponseCode();
+  var body;
+  try { body = JSON.parse(res.getContentText()); } catch (e) { body = {}; }
+  if (code < 200 || code >= 300) {
+    var msg = body && body.error && body.error.message ? body.error.message : ('Stripe HTTP ' + code);
+    throw new Error(msg);
+  }
+  return body;
+}
+
+function createCheckoutSession_(d, quote, orderId) {
+  var success = CREATOR_URL + '?payment=success&session_id={CHECKOUT_SESSION_ID}';
+  var cancel = CREATOR_URL + '?payment=cancelled';
+  var payload = {
+    mode: 'payment',
+    locale: 'ja',
+    success_url: success,
+    cancel_url: cancel,
+    client_reference_id: orderId,
+    customer_email: String(d.mail || '').slice(0, 800),
+    'line_items[0][quantity]': quote.qty,
+    'line_items[0][price_data][currency]': 'jpy',
+    'line_items[0][price_data][unit_amount]': quote.unitPriceYen,
+    'line_items[0][price_data][product_data][name]': 'ぷくぷくネームキーホルダー',
+    'line_items[0][price_data][product_data][description]': String(d.slug || 'オーダー文字').slice(0, 120),
+    'shipping_address_collection[allowed_countries][0]': 'JP',
+    'metadata[order_id]': orderId,
+    'metadata[grams]': String(quote.grams),
+    'metadata[quantity]': String(quote.qty)
+  };
+  if (quote.shippingYen > 0) {
+    payload['shipping_options[0][shipping_rate_data][type]'] = 'fixed_amount';
+    payload['shipping_options[0][shipping_rate_data][display_name]'] = '国内送料';
+    payload['shipping_options[0][shipping_rate_data][fixed_amount][amount]'] = quote.shippingYen;
+    payload['shipping_options[0][shipping_rate_data][fixed_amount][currency]'] = 'jpy';
+  }
+  return stripeRequest_('post', '/v1/checkout/sessions', payload, 'neqo-order-' + orderId);
+}
+
+/** 成功画面からSessionを再取得し、支払い済みなら注文シートを更新する。 */
+function paymentStatus_(sessionId) {
+  var id = String(sessionId || '');
+  if (!/^cs_(test_|live_)?[A-Za-z0-9_]+$/.test(id) || id.length > 255) {
+    return { ok: false, error: 'bad_session_id' };
+  }
+  var session = stripeRequest_('get', '/v1/checkout/sessions/' + encodeURIComponent(id));
+  var paid = session.payment_status === 'paid' || session.payment_status === 'no_payment_required';
+  if (paid) markOrderPaid_(id);
+  return {
+    ok: true,
+    paid: paid,
+    paymentStatus: session.payment_status || '',
+    orderId: session.client_reference_id || '',
+    amountTotal: session.amount_total || 0,
+    currency: session.currency || 'jpy'
+  };
+}
+
+function markOrderPaid_(sessionId) {
+  var sh = getSheet_();
+  var last = sh.getLastRow();
+  if (last < 2) return;
+  var values = sh.getRange(2, COL.STRIPE_SESSION, last - 1, 1).getValues();
+  for (var i = values.length - 1; i >= 0; i--) {
+    if (String(values[i][0]) === sessionId) {
+      sh.getRange(i + 2, COL.PAYMENT).setValue('支払済み');
+      return;
+    }
+  }
+}
 
 /** data URL または生 base64 を Blob に。失敗時は null。 */
 function decodeToBlob_(data, mime, filename) {
@@ -624,11 +847,12 @@ function confirmOrder_(name, mail, previewPng, slug) {
   var body = [
     (name ? name + ' 様' : 'ご注文ありがとうございます'),
     '',
-    'ぷくぷくネームキーホルダーのご注文を受け付けました。',
+    'ぷくぷくネームキーホルダーの注文データを受け付けました。',
     '完成予想図を添付しています。',
     '',
-    '内容を確認して、2〜3日以内にお見積り（送料込みの金額）をご返信します。',
-    'この時点では確定・課金はされていません。金額をご確認のうえ、お進みください。',
+    '続いて表示されるStripe画面で、商品代と送料をご確認のうえお支払いください。',
+    'Stripeでの決済が完了した時点で注文確定となります。',
+    '決済を中断した場合や領収メールが届かない場合は、二重に操作せずご連絡ください。',
     '',
     'ご不明な点は、このメールにそのままご返信ください。',
     '',
@@ -637,7 +861,7 @@ function confirmOrder_(name, mail, previewPng, slug) {
   var options = { name: 'NEQO FAB', body: body };
   if (png) options.attachments = [png];
   if (replyTo) options.replyTo = replyTo;
-  MailApp.sendEmail(mail, '【NEQO FAB】ご注文を受け付けました（完成予想図つき）', body, options);
+  MailApp.sendEmail(mail, '【NEQO FAB】注文データを受け付けました（決済前）', body, options);
 }
 
 /** ファイル名用に危険な文字を除去。 */

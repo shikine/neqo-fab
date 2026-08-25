@@ -872,6 +872,8 @@
     rebuild();                          // 念のため最新化
     var slug = sanitize(S.text).replace(/\s+/g, '').slice(0, 20) || 'name';
     var borderStl = meshStlBase64(borderMesh);   // お皿（底＋壁＋金具）
+    var floorStl = meshStlBase64(borderMesh && borderMesh[0]); // サーバー側の価格再計算用
+    var rimStl = meshStlBase64(borderMesh && borderMesh[1]);   // サーバー側の価格再計算用
     var lettersStl = meshStlBase64(textMesh);    // 文字
     var previewPng = previewDataURL(640, 'image/png');
 
@@ -879,24 +881,59 @@
       hp: document.getElementById('oHidden').value,
       type: 'ぷくぷくキーホルダー注文',
       name: name, mail: mail, message: message,
-      slug: slug,
+      slug: slug, qty: qty, checkout: '1',
       previewPng: previewPng,    // 管理者＆注文者へ添付する完成予想図
       borderStl: borderStl,      // 管理者へ添付：フチ（お皿）部品
+      floorStl: floorStl,        // サーバー検算用：底
+      rimStl: rimStl,            // サーバー検算用：壁
       lettersStl: lettersStl     // 管理者へ添付：文字部品
     });
 
-    btn.textContent = '送信中…';
+    btn.textContent = '決済画面を準備中…';
     fetch(ENDPOINT, { method: 'POST', body: payload })
       .then(function (r) { return r.json(); })
       .then(function (res) {
-        if (!res || !res.ok) throw new Error('rejected');
-        say('ok', '<b>送信しました。</b><br>内容を確認して、2〜3日以内にお見積り（送料込み）をご返信します。');
-        document.getElementById('orderForm').reset();
+        if (!res || !res.ok || !res.checkoutUrl) throw new Error((res && res.reason) || 'rejected');
+        say('ok', '<b>Stripeの決済画面へ移動します。</b><br>金額と送料を確認してお支払いください。');
+        window.location.assign(res.checkoutUrl);
       })
-      .catch(function () {
-        say('err', '送信に失敗しました。時間をおいて再度お試しいただくか、トップページのお問い合わせからご連絡ください。');
+      .catch(function (err) {
+        console.error('checkout failed', err);
+        say('err', '決済画面を準備できませんでした。注文記録は届いている場合があります。重ねて送信せず、NEQO FABへお問い合わせください。');
       })
       .then(function () { btn.disabled = false; btn.textContent = label; });
+  }
+
+  function paymentNotice(kind, html) {
+    var el = document.getElementById('paymentNotice');
+    if (!el) return;
+    el.className = 'payment-notice show' + (kind === 'err' ? ' err' : '');
+    el.innerHTML = html;
+  }
+
+  function initPaymentReturn() {
+    var q = new URLSearchParams(window.location.search);
+    var state = q.get('payment');
+    if (state === 'cancelled') {
+      paymentNotice('err', '<b>決済をキャンセルしました。</b> 料金は発生していません。内容を確認して、もう一度お進みください。');
+      return;
+    }
+    if (state !== 'success') return;
+    var sessionId = q.get('session_id') || '';
+    if (!/^cs_[A-Za-z0-9_]+$/.test(sessionId)) {
+      paymentNotice('err', '決済結果を確認できませんでした。Stripeの領収メールをご確認ください。');
+      return;
+    }
+    paymentNotice('ok', '<b>お支払いを確認しています…</b>');
+    fetch(ENDPOINT + '?action=paymentStatus&session_id=' + encodeURIComponent(sessionId))
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res || !res.ok || !res.paid) throw new Error('not_paid');
+        paymentNotice('ok', '<b>お支払いが完了しました。</b> ご注文ありがとうございます。製作開始のご連絡をお待ちください。');
+      })
+      .catch(function () {
+        paymentNotice('err', '<b>決済状況を自動確認できませんでした。</b> Stripeの領収メールをご確認ください。二重に決済しないでください。');
+      });
   }
 
   function escapeHtml(s) { return s.replace(/[&<>"']/g, function (c) {
@@ -924,6 +961,7 @@
   function boot() {
     resize();
     initUI();
+    initPaymentReturn();
     ensureFonts(neededFontKeys(DEFAULTS.font, DEFAULTS.text), function () {
       document.getElementById('load').classList.add('done');
       requestAnimationFrame(function () { resize(); rebuild();
