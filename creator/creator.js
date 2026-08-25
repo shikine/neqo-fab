@@ -41,8 +41,22 @@
   var DEFAULTS = {
     text: 'なまえ', font: 'pop', puff: 0.8,
     textColor: '#F7C1D4', borderColor: '#FFFFFF',
-    border: 2.4, ring: true, ringSide: 'left'
+    border: 2.4, ring: true, ringSide: 'left', material: 'pla'
   };
+
+  // 材料と価格設定。販売条件を変えるときは、この数値だけ調整する。
+  var MATERIALS = {
+    pla:  { label: 'PLA',  density: 1.24, yenPerKg: 3000 },
+    petg: { label: 'PETG', density: 1.27, yenPerKg: 3500 }
+  };
+  var PRICE = {
+    baseYen: 700,          // 造形準備・機械使用・仕上げの基本料金
+    yenPerGram: 50,        // 材料使用量に連動する加工料金
+    minimumYen: 900,       // 1個あたり最低価格
+    roundYen: 100          // 表示価格の丸め単位（切り上げ）
+  };
+  var MATERIAL_MARGIN = 1.08; // スライサー差・端材を見込む8%
+  var JOB_OVERHEAD_G = 0.35;  // 別出力1回あたりのスカート／開始線など
 
   // 固定寸法（mm）
   var SIZE = 20;          // 文字の em サイズ
@@ -60,6 +74,7 @@
   var fontCache = {};
   var THREEfont = null;
   var lastBBox = null;
+  var lastEstimate = null;
 
   // ---- three basics ----
   var canvas = document.getElementById('view');
@@ -490,6 +505,7 @@
     lastFit = overall;
     fitCamera(overall);
     updateDims(overall);
+    updateEstimate();
     invalidate();
   }
 
@@ -530,6 +546,71 @@
       '横 <b>' + Math.round(bb.w) + '</b> mm　' +
       '縦 <b>' + Math.round(bb.h) + '</b> mm　' +
       '厚み <b>' + th.toFixed(1) + '</b> mm';
+  }
+
+  // 閉じた三角形メッシュの符号付き四面体体積から体積(mm³)を求める。
+  function meshVolumeMm3(meshOrArr) {
+    if (!meshOrArr) return 0;
+    var list = Array.isArray(meshOrArr) ? meshOrArr : [meshOrArr];
+    var total = 0;
+    list.forEach(function (mesh) {
+      if (!mesh || !mesh.geometry) return;
+      mesh.updateWorldMatrix(true, false);
+      var g = mesh.geometry, pos = g.attributes.position, idx = g.index, m = mesh.matrixWorld;
+      var a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), cross = new THREE.Vector3();
+      var sum = 0, count = idx ? idx.count : pos.count;
+      function v(i, out) { return out.fromBufferAttribute(pos, i).applyMatrix4(m); }
+      for (var i = 0; i < count; i += 3) {
+        var i0 = idx ? idx.getX(i) : i;
+        var i1 = idx ? idx.getX(i + 1) : i + 1;
+        var i2 = idx ? idx.getX(i + 2) : i + 2;
+        v(i0, a); v(i1, b); v(i2, c);
+        sum += a.dot(cross.crossVectors(b, c)) / 6;
+      }
+      total += Math.abs(sum);
+    });
+    return total;
+  }
+
+  function yen(n) { return '¥' + Math.round(n).toLocaleString('ja-JP'); }
+
+  function calculateEstimate() {
+    var mat = MATERIALS[S.material] || MATERIALS.pla;
+    var textNetG = meshVolumeMm3(textMesh) / 1000 * mat.density;
+    // フチは底と壁のSTLが重なっている。スライサーで一体化される重複分を二重計上しない。
+    var borderMm3 = 0;
+    if (borderMesh && borderMesh.length) {
+      var floorMm3 = meshVolumeMm3(borderMesh[0]);
+      var rimMm3 = meshVolumeMm3(borderMesh[1]);
+      borderMm3 = floorMm3 + rimMm3 * (WALL / (FLOOR + WALL));
+    }
+    var borderNetG = borderMm3 / 1000 * mat.density;
+    // 色別の2部品を別出力するため、存在する部品ごとに開始線などの予備量を加える。
+    var textG = textNetG > 0 ? textNetG * MATERIAL_MARGIN + JOB_OVERHEAD_G : 0;
+    var borderG = borderNetG > 0 ? borderNetG * MATERIAL_MARGIN + JOB_OVERHEAD_G : 0;
+    var grams = textG + borderG;
+    var materialYen = grams * mat.yenPerKg / 1000;
+    var rawPrice = Math.max(PRICE.minimumYen, PRICE.baseYen + grams * PRICE.yenPerGram);
+    var priceYen = Math.ceil(rawPrice / PRICE.roundYen) * PRICE.roundYen;
+    return {
+      material: S.material, materialLabel: mat.label,
+      textG: textG, borderG: borderG, grams: grams,
+      materialYen: materialYen, priceYen: priceYen
+    };
+  }
+
+  function updateEstimate() {
+    lastEstimate = calculateEstimate();
+    var e = lastEstimate;
+    var weight = document.getElementById('materialWeight');
+    var price = document.getElementById('estimatedPrice');
+    var note = document.getElementById('estimateBreakdown');
+    if (weight) weight.textContent = '約 ' + e.grams.toFixed(1) + ' g';
+    if (price) price.textContent = yen(e.priceYen);
+    if (note) note.textContent =
+      '文字 ' + e.textG.toFixed(1) + 'g ＋ フチ ' + e.borderG.toFixed(1) + 'g' +
+      '（別出力の予備分込み）／材料原価 約' + Math.ceil(e.materialYen) + '円。送料別の参考価格です。';
+    updateOrderPrice();
   }
 
   function sanitize(t) {
@@ -607,6 +688,10 @@
       S.ring = this.checked; rebuild();
     });
 
+    document.getElementById('material').addEventListener('change', function () {
+      S.material = this.value; updateEstimate();
+    });
+
     buildSwatches('swText', 'textColor');
     buildSwatches('swBorder', 'borderColor');
 
@@ -618,6 +703,7 @@
       document.getElementById('border').value = S.border;
       document.getElementById('borderVal').textContent = S.border.toFixed(1) + ' mm';
       document.getElementById('ring').checked = S.ring;
+      document.getElementById('material').value = S.material;
       syncSeg('fontSeg', 'font', S.font); syncSeg('ringSeg', 'side', S.ringSide);
       buildSwatches('swText', 'textColor'); buildSwatches('swBorder', 'borderColor');
       updateTextCount();
@@ -702,16 +788,19 @@
   }
 
   function compactSpec() {
+    var e = lastEstimate || calculateEstimate();
     return {
-      v: 1, text: S.text, font: S.font, puff: +S.puff.toFixed(2),
+      v: 2, text: S.text, font: S.font, puff: +S.puff.toFixed(2),
       textColor: S.textColor, borderColor: S.borderColor,
       border: +S.border.toFixed(1), ring: S.ring, ringSide: S.ringSide,
+      material: S.material, grams: +e.grams.toFixed(1), priceYen: e.priceYen,
       t_text: T_TEXT, t_floor: FLOOR, t_wall: WALL
     };
   }
 
   function specText() {
     var bb = lastBBox || { w: 0, h: 0 };
+    var e = lastEstimate || calculateEstimate();
     var th = (S.border > 0.01 ? (FLOOR + T_TEXT) : T_TEXT);
     return [
       '■ ぷくぷくキーホルダー 注文',
@@ -721,7 +810,9 @@
       '文字色: ' + colorName(S.textColor) + ' (' + S.textColor + ')',
       'フチ: ' + (S.border > 0.01 ? (S.border.toFixed(1) + 'mm ' + colorName(S.borderColor) + ' (' + S.borderColor + ')') : 'なし'),
       '金具リング: ' + (S.ring ? (S.ringSide === 'left' ? '左' : '右') : 'なし'),
-      '概寸: 約 ' + Math.round(bb.w) + ' × ' + Math.round(bb.h) + ' × ' + th.toFixed(1) + ' mm'
+      '概寸: 約 ' + Math.round(bb.w) + ' × ' + Math.round(bb.h) + ' × ' + th.toFixed(1) + ' mm',
+      '材料: ' + e.materialLabel + '／約 ' + e.grams.toFixed(1) + ' g（文字 ' + e.textG.toFixed(1) + 'g・フチ ' + e.borderG.toFixed(1) + 'g）',
+      '参考価格: ' + yen(e.priceYen) + '／1個（送料別）'
     ].join('\n');
   }
   function colorName(hex) {
@@ -733,21 +824,34 @@
     document.getElementById('ordImg').src = previewDataURL(360);
     var bb = lastBBox || { w: 0, h: 0 };
     var th = (S.border > 0.01 ? (FLOOR + T_TEXT) : T_TEXT);
+    var e = lastEstimate || calculateEstimate();
     document.getElementById('ordMeta').innerHTML =
       '<b>' + escapeHtml(S.text.replace(/\n/g, ' ')) + '</b>' +
       '<span>' + FONTS[S.font].label + '／ぷくぷく ' + S.puff.toFixed(2) + '</span>' +
       '<span>文字：' + colorName(S.textColor) + '　フチ：' + (S.border > 0.01 ? colorName(S.borderColor) : 'なし') + '</span>' +
-      '<span>約 ' + Math.round(bb.w) + '×' + Math.round(bb.h) + '×' + th.toFixed(1) + ' mm</span>';
+      '<span>約 ' + Math.round(bb.w) + '×' + Math.round(bb.h) + '×' + th.toFixed(1) + ' mm</span>' +
+      '<span>' + e.materialLabel + ' 約' + e.grams.toFixed(1) + 'g／参考価格 ' + yen(e.priceYen) + '</span>';
+    updateOrderPrice();
     document.getElementById('sent').className = 'sent';
     if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
   }
 
   function initOrder() {
     document.getElementById('cancelBtn').addEventListener('click', function () { dlg.close(); });
+    document.getElementById('oQty').addEventListener('change', updateOrderPrice);
     document.getElementById('orderForm').addEventListener('submit', function (ev) {
       ev.preventDefault();
       submitOrder();
     });
+  }
+
+  function updateOrderPrice() {
+    var el = document.getElementById('oPrice');
+    if (!el || !lastEstimate) return;
+    var qty = parseInt(document.getElementById('oQty').value, 10);
+    el.textContent = isFinite(qty)
+      ? '参考合計 ' + yen(lastEstimate.priceYen * qty) + '（送料別）'
+      : '6個以上は数量を確認してお見積りします。';
   }
 
   function say(kind, html) {
@@ -762,8 +866,10 @@
       say('err', 'お名前と、正しいメールアドレスをご入力ください。'); return;
     }
     var qty = document.getElementById('oQty').value;
+    var qtyNum = parseInt(qty, 10);
     var note = document.getElementById('oNote').value.trim();
-    var message = specText() + '\n個数: ' + qty + (note ? ('\nご要望: ' + note) : '') +
+    var priceTotal = isFinite(qtyNum) && lastEstimate ? ('\n参考金額合計: ' + yen(lastEstimate.priceYen * qtyNum) + '（送料別）') : '';
+    var message = specText() + '\n個数: ' + qty + priceTotal + (note ? ('\nご要望: ' + note) : '') +
       '\n\nSPEC=' + JSON.stringify(compactSpec()) +
       '\n（このメールは neqo-fab クリエイターから自動送信されています）';
 

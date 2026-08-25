@@ -99,6 +99,11 @@ input[type=color]{width:0;height:0;opacity:0;position:absolute;pointer-events:no
 
 .dims{font-family:var(--mono);font-size:11px;color:var(--ink-soft);display:flex;gap:14px;flex-wrap:wrap}
 .dims b{color:var(--ink);font-weight:700}
+.estimate{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.estimate .box{border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:var(--paper)}
+.estimate .box span{display:block;font-size:10px;color:var(--ink-soft);margin-bottom:2px}
+.estimate .box b{font-family:var(--mono);font-size:16px;color:var(--ink)}
+.estimate-note{display:block;margin-top:7px;font-size:10.5px;line-height:1.55;color:var(--ink-soft)}
 
 /* order dialog */
 dialog{border:1px solid var(--line);border-radius:16px;background:var(--paper);color:var(--ink);
@@ -189,6 +194,22 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
         <div class="dims" id="dims"></div>
       </div>
 
+      <div class="panel">
+        <h2>材料・参考価格</h2>
+        <div class="field">
+          <label for="material">材料</label>
+          <select id="material">
+            <option value="pla">PLA</option>
+            <option value="petg">PETG</option>
+          </select>
+        </div>
+        <div class="estimate" aria-live="polite">
+          <div class="box"><span>材料使用量</span><b id="materialWeight">計算中…</b></div>
+          <div class="box"><span>参考価格／1個</span><b id="estimatedPrice">計算中…</b></div>
+        </div>
+        <span class="estimate-note" id="estimateBreakdown">立体形状から文字・フチを別出力する前提で概算します。送料は含みません。</span>
+      </div>
+
       <div class="actions">
         <button class="btn primary" id="orderBtn">この内容で注文にすすむ →</button>
         <div class="seg" style="justify-content:space-between">
@@ -227,6 +248,7 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
         <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
         <option>それ以上（本文に記入）</option>
       </select>
+      <span class="muted" id="oPrice"></span>
     </div>
     <div class="field">
       <label for="oNote">ご要望（任意）</label>
