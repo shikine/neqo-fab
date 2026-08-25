@@ -106,6 +106,15 @@ function checkSetup() {
   out.push('通知先 : ' +
     (PropertiesService.getScriptProperties().getProperty('NOTIFY_TO') || Session.getEffectiveUser().getEmail()));
 
+  // 秘密鍵そのものはログへ出さず、設定の有無とモードの整合性だけ確認する。
+  var props = PropertiesService.getScriptProperties();
+  var stripeMode = String(props.getProperty('STRIPE_MODE') || 'test').toLowerCase();
+  var stripeKey = String(props.getProperty('STRIPE_SECRET_KEY') || '');
+  var stripeReady = (stripeMode === 'test' && stripeKey.indexOf('sk_test_') === 0) ||
+    (stripeMode === 'live' && stripeKey.indexOf('sk_live_') === 0);
+  out.push('Stripe : ' + (stripeReady ? '設定済み' : '未設定またはモード不一致') + '（' + stripeMode + '）');
+  out.push('配送 : スマートレター 210円／レターパックライト 430円');
+
   var msg = out.join('\n');
   console.log(msg);
   return msg;
