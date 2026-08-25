@@ -52,6 +52,11 @@
     minimumYen: 900,       // 1個あたり最低価格
     roundYen: 100          // 表示価格の丸め単位（切り上げ）
   };
+  // 日本郵便の全国一律料金（2026-08-25確認）。
+  var SHIPPING = {
+    smart: { label: 'スマートレター', yen: 210 },
+    light: { label: 'レターパックライト', yen: 430 }
+  };
   var MATERIAL_MARGIN = 1.08; // スライサー差・端材を見込む8%
   var JOB_OVERHEAD_G = 0.35;  // 別出力1回あたりのスカート／開始線など
 
@@ -823,27 +828,52 @@
       '<span>文字：' + colorName(S.textColor) + '　フチ：' + (S.border > 0.01 ? colorName(S.borderColor) : 'なし') + '</span>' +
       '<span>約 ' + Math.round(bb.w) + '×' + Math.round(bb.h) + '×' + th.toFixed(1) + ' mm</span>' +
       '<span>' + e.materialLabel + ' 約' + e.grams.toFixed(1) + 'g／参考価格 ' + yen(e.priceYen) + '</span>';
-    updateOrderPrice();
+    updateShippingChoices();
     document.getElementById('sent').className = 'sent';
     if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
   }
 
   function initOrder() {
     document.getElementById('cancelBtn').addEventListener('click', function () { dlg.close(); });
-    document.getElementById('oQty').addEventListener('change', updateOrderPrice);
+    document.getElementById('oQty').addEventListener('change', updateShippingChoices);
+    document.getElementById('oShipping').addEventListener('change', updateOrderPrice);
     document.getElementById('orderForm').addEventListener('submit', function (ev) {
       ev.preventDefault();
       submitOrder();
     });
   }
 
+  function smartLetterEligible() {
+    var qty = parseInt(document.getElementById('oQty').value, 10);
+    if (qty !== 1 || !lastBBox) return false;
+    // 封筒は250×170mm。緩衝材と封入余白を各辺に見込む。
+    var w = lastBBox.w, h = lastBBox.h;
+    return (w <= 235 && h <= 155) || (w <= 155 && h <= 235);
+  }
+
+  function updateShippingChoices() {
+    var select = document.getElementById('oShipping');
+    var smart = select.querySelector('option[value="smart"]');
+    var eligible = smartLetterEligible();
+    smart.disabled = !eligible;
+    if (!eligible && select.value === 'smart') select.value = 'light';
+    document.getElementById('oShippingNote').textContent = eligible
+      ? '全国一律。スマートレターは追跡なし、レターパックライトは追跡ありです。'
+      : 'この内容は梱包サイズのため、追跡付きレターパックライトで発送します。';
+    updateOrderPrice();
+  }
+
   function updateOrderPrice() {
     var el = document.getElementById('oPrice');
     if (!el || !lastEstimate) return;
     var qty = parseInt(document.getElementById('oQty').value, 10);
-    el.textContent = isFinite(qty)
-      ? '参考合計 ' + yen(lastEstimate.priceYen * qty) + '（送料別）'
-      : '6個以上は数量を確認してお見積りします。';
+    var method = SHIPPING[document.getElementById('oShipping').value];
+    if (!isFinite(qty)) {
+      el.textContent = '6個以上は数量を確認してお見積りします。';
+    } else {
+      var goods = lastEstimate.priceYen * qty;
+      el.textContent = '商品 ' + yen(goods) + ' ＋ ' + method.label + ' ' + yen(method.yen) + ' ＝ 合計 ' + yen(goods + method.yen);
+    }
   }
 
   function say(kind, html) {
@@ -854,14 +884,19 @@
   function submitOrder() {
     var name = document.getElementById('oName').value.trim();
     var mail = document.getElementById('oMail').value.trim();
-    if (!name || !mail || mail.indexOf('@') < 0) {
+    var shippingKey = document.getElementById('oShipping').value;
+    var shipping = SHIPPING[shippingKey];
+    if (!name || !mail || mail.indexOf('@') < 0 || !shipping) {
       say('err', 'お名前と、正しいメールアドレスをご入力ください。'); return;
     }
     var qty = document.getElementById('oQty').value;
     var qtyNum = parseInt(qty, 10);
     var note = document.getElementById('oNote').value.trim();
-    var priceTotal = isFinite(qtyNum) && lastEstimate ? ('\n参考金額合計: ' + yen(lastEstimate.priceYen * qtyNum) + '（送料別）') : '';
+    var priceTotal = isFinite(qtyNum) && lastEstimate
+      ? ('\n商品代: ' + yen(lastEstimate.priceYen * qtyNum) + '\n' + shipping.label + ': ' + yen(shipping.yen) + '\n合計: ' + yen(lastEstimate.priceYen * qtyNum + shipping.yen))
+      : '';
     var message = specText() + '\n個数: ' + qty + priceTotal + (note ? ('\nご要望: ' + note) : '') +
+      '\n配送方法: ' + shipping.label +
       '\n\nSPEC=' + JSON.stringify(compactSpec()) +
       '\n（このメールは neqo-fab クリエイターから自動送信されています）';
 
@@ -881,7 +916,7 @@
       hp: document.getElementById('oHidden').value,
       type: 'ぷくぷくキーホルダー注文',
       name: name, mail: mail, message: message,
-      slug: slug, qty: qty, checkout: '1',
+      slug: slug, qty: qty, shippingMethod: shippingKey, checkout: '1',
       previewPng: previewPng,    // 管理者＆注文者へ添付する完成予想図
       borderStl: borderStl,      // 管理者へ添付：フチ（お皿）部品
       floorStl: floorStl,        // サーバー検算用：底

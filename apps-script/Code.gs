@@ -35,7 +35,7 @@
  *                （例: abc...@group.calendar.google.com）
  *   STRIPE_SECRET_KEY  Stripe のシークレットキー。最初は必ず sk_test_... を設定する。
  *   STRIPE_MODE        test または live。未設定時は test。live は明示設定時だけ許可。
- *   STRIPE_SHIPPING_YEN 国内一律送料（円）。0円の場合も必ず「0」と設定する。
+ *   送料はスマートレター／レターパックライトの全国一律料金をコード内で計算する。
  */
 
 var TZ = 'Asia/Tokyo';
@@ -52,12 +52,14 @@ var DOW_JP = ['日', '月', '火', '水', '木', '金', '土'];
 var HEADERS = [
   '受信日時', '相談の種類', 'お名前', '所属', 'メール', '電話', '気になる機材', 'ご相談内容',
   '希望日時', 'ステータス', '承認トークン', 'カレンダーID',
-  '注文ID', '材料量(g)', '単価', '個数', '決済状態', 'Stripe Session'
+  '注文ID', '材料量(g)', '単価', '個数', '決済状態', 'Stripe Session',
+  '配送方法', '送料'
 ];
 var COL = { // 1始まり。HEADERS と対応させること
   TS: 1, TYPE: 2, NAME: 3, ORG: 4, MAIL: 5, TEL: 6, EQUIP: 7, MSG: 8,
   SLOT: 9, STATUS: 10, TOKEN: 11, EVENT: 12,
-  ORDER_ID: 13, GRAMS: 14, UNIT_PRICE: 15, QTY: 16, PAYMENT: 17, STRIPE_SESSION: 18
+  ORDER_ID: 13, GRAMS: 14, UNIT_PRICE: 15, QTY: 16, PAYMENT: 17, STRIPE_SESSION: 18,
+  SHIP_METHOD: 19, SHIPPING: 20
 };
 
 // ============================================================
@@ -198,7 +200,9 @@ function doPost(e) {
       quote ? quote.unitPriceYen : '',
       quote ? quote.qty : '',
       quote ? '決済待ち' : '',
-      ''
+      '',
+      quote ? quote.shippingLabel : '',
+      quote ? quote.shippingYen : ''
     ];
     sheet.appendRow(row);
     var rowIndex = sheet.getLastRow();
@@ -657,6 +661,20 @@ var ORDER_MINIMUM_YEN = 900;
 var ORDER_ROUND_YEN = 100;
 var CREATOR_URL = 'https://shikine.github.io/neqo-fab/creator/';
 
+/** 全国一律の封筒料金（2026-08-25確認）。 */
+function shippingQuote_(method, qty, bounds) {
+  var key = String(method || 'light').trim();
+  if (key === 'smart') {
+    if (qty !== 1) throw new Error('smart_letter_quantity');
+    var fitsA5 = bounds && ((bounds.width <= 235 && bounds.height <= 155) ||
+      (bounds.width <= 155 && bounds.height <= 235));
+    if (!fitsA5) throw new Error('smart_letter_size');
+    return { key: key, label: 'スマートレター', yen: 210 };
+  }
+  if (key === 'light') return { key: key, label: 'レターパックライト', yen: 430 };
+  throw new Error('bad_shipping_method');
+}
+
 /** data URL から base64 本体だけを取り出す。 */
 function base64Body_(data) {
   var s = String(data || '');
@@ -664,8 +682,8 @@ function base64Body_(data) {
   return (s.slice(0, 5) === 'data:' && comma >= 0) ? s.slice(comma + 1) : s;
 }
 
-/** ブラウザが生成した binary STL の閉メッシュ体積を mm³ で求める。 */
-function stlVolumeMm3_(data) {
+/** ブラウザが生成した binary STL の閉メッシュ体積と外寸を求める。 */
+function stlMetricsMm_(data) {
   var b64 = base64Body_(data);
   if (!b64 || b64.length > 12 * 1024 * 1024) throw new Error('bad_stl_size');
   var signed = Utilities.base64Decode(b64);
@@ -677,17 +695,24 @@ function stlVolumeMm3_(data) {
   if (!triangles || 84 + triangles * 50 > u8.length) throw new Error('bad_stl_triangles');
 
   var sum = 0;
+  var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   function f(off) { return dv.getFloat32(off, true); }
   for (var t = 0; t < triangles; t++) {
     var p = 84 + t * 50 + 12;
     var ax = f(p), ay = f(p + 4), az = f(p + 8);
     var bx = f(p + 12), by = f(p + 16), bz = f(p + 20);
     var cx = f(p + 24), cy = f(p + 28), cz = f(p + 32);
+    minX = Math.min(minX, ax, bx, cx); maxX = Math.max(maxX, ax, bx, cx);
+    minY = Math.min(minY, ay, by, cy); maxY = Math.max(maxY, ay, by, cy);
     sum += (ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) + az * (bx * cy - by * cx)) / 6;
   }
   var volume = Math.abs(sum);
   if (!isFinite(volume) || volume <= 0) throw new Error('bad_stl_volume');
-  return volume;
+  return { volume: volume, width: maxX - minX, height: maxY - minY };
+}
+
+function stlVolumeMm3_(data) {
+  return stlMetricsMm_(data).volume;
 }
 
 /** クライアントの申告価格を信用せず、送られた製造STLからサーバー側で再計算する。 */
@@ -695,7 +720,8 @@ function calculateOrderQuote_(d) {
   var qty = parseInt(d.qty, 10);
   if (!isFinite(qty) || qty < 1 || qty > 5) throw new Error('bad_quantity');
   var textMm3 = stlVolumeMm3_(d.lettersStl);
-  var floorMm3 = stlVolumeMm3_(d.floorStl);
+  var floorMetrics = stlMetricsMm_(d.floorStl);
+  var floorMm3 = floorMetrics.volume;
   var rimMm3 = stlVolumeMm3_(d.rimStl);
   // 底と壁は重なっているため、スライサーで一体化される重複分を二重計上しない。
   var borderMm3 = floorMm3 + rimMm3 * (ORDER_WALL_MM / (ORDER_FLOOR_MM + ORDER_WALL_MM));
@@ -706,16 +732,15 @@ function calculateOrderQuote_(d) {
 
   var raw = Math.max(ORDER_MINIMUM_YEN, ORDER_BASE_YEN + grams * ORDER_YEN_PER_GRAM);
   var unit = Math.ceil(raw / ORDER_ROUND_YEN) * ORDER_ROUND_YEN;
-  var shippingRaw = PropertiesService.getScriptProperties().getProperty('STRIPE_SHIPPING_YEN');
-  if (shippingRaw === null) throw new Error('shipping_not_configured');
-  var shipping = parseInt(shippingRaw, 10);
-  if (!isFinite(shipping) || shipping < 0 || shipping > 5000) throw new Error('bad_shipping');
+  var shipping = shippingQuote_(d.shippingMethod, qty, floorMetrics);
   return {
     qty: qty,
     grams: Math.round(grams * 10) / 10,
     unitPriceYen: unit,
-    shippingYen: shipping,
-    totalYen: unit * qty + shipping
+    shippingMethod: shipping.key,
+    shippingLabel: shipping.label,
+    shippingYen: shipping.yen,
+    totalYen: unit * qty + shipping.yen
   };
 }
 
@@ -771,10 +796,12 @@ function createCheckoutSession_(d, quote, orderId) {
   };
   if (quote.shippingYen > 0) {
     payload['shipping_options[0][shipping_rate_data][type]'] = 'fixed_amount';
-    payload['shipping_options[0][shipping_rate_data][display_name]'] = '国内送料';
+    payload['shipping_options[0][shipping_rate_data][display_name]'] = quote.shippingLabel;
     payload['shipping_options[0][shipping_rate_data][fixed_amount][amount]'] = quote.shippingYen;
     payload['shipping_options[0][shipping_rate_data][fixed_amount][currency]'] = 'jpy';
+    payload['shipping_options[0][shipping_rate_data][metadata][shipping_method]'] = quote.shippingMethod;
   }
+  payload['metadata[shipping_method]'] = quote.shippingMethod;
   return stripeRequest_('post', '/v1/checkout/sessions', payload, 'neqo-order-' + orderId);
 }
 
