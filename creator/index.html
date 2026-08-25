@@ -146,7 +146,7 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
   <p class="lead">文字と色を選ぶと、その場で立体プレビュー。気に入ったら、そのまま注文できます。1文字ずつ膨らんだ「ぷくぷく文字」と、まわりを縁取るぷくぷくフチ。八ヶ岳のふもと・NEQO FAB がひとつずつ作ります。</p>
   <div class="campaign" id="campaignBanner" hidden>
     <b>8月限定キャンペーン｜商品代0円</b>
-    <span>8月31日 23:59まで。スマートレター210円またはレターパックライト430円の送料だけでお届けします。</span>
+    <span>8月31日 23:59まで。配送は手数料込み220円／450円、直接受け取りは0円です。</span>
   </div>
   <div class="payment-notice" id="paymentNotice" role="status"></div>
 
@@ -263,10 +263,11 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
     <div class="field">
       <label for="oShipping">配送方法</label>
       <select id="oShipping">
-        <option value="light" selected>レターパックライト（追跡あり）430円</option>
-        <option value="smart">スマートレター（追跡なし）210円</option>
+        <option value="light" selected>レターパックライト（追跡あり）450円</option>
+        <option value="smart">スマートレター（追跡なし）220円</option>
+        <option value="pickup">直接受け取り（送料・オンライン決済なし）0円</option>
       </select>
-      <span class="muted" id="oShippingNote">全国一律。スマートレターは1個でA5封筒に収まる形のみ選べます。</span>
+      <span class="muted" id="oShippingNote">配送金額はStripe手数料込み。直接受け取りはメールで日時を調整します。</span>
       <span class="muted" id="oPrice"></span>
     </div>
     <div class="field">
@@ -286,6 +287,6 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js"></script>
-<script src="creator.js?v=20260825-campaign"></script>
+<script src="creator.js?v=20260825-pickup"></script>
 </body>
 </html>

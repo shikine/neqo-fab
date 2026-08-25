@@ -35,7 +35,7 @@
  *                （例: abc...@group.calendar.google.com）
  *   STRIPE_SECRET_KEY  Stripe のシークレットキー。最初は必ず sk_test_... を設定する。
  *   STRIPE_MODE        test または live。未設定時は test。live は明示設定時だけ許可。
- *   送料はスマートレター／レターパックライトの全国一律料金をコード内で計算する。
+ *   配送は郵便料金にStripe手数料を加味し、直接受け取りはオンライン決済なしで受け付ける。
  */
 
 var TZ = 'Asia/Tokyo';
@@ -122,7 +122,7 @@ function checkSetup() {
       out.push('Stripe API : 接続NG → ' + e);
     }
   }
-  out.push('配送 : スマートレター 210円／レターパックライト 430円');
+  out.push('配送 : スマートレター 220円／レターパックライト 450円／直接受け取り 0円');
 
   var msg = out.join('\n');
   console.log(msg);
@@ -137,6 +137,8 @@ function authorizeStripe() {
   var account = stripeRequest_('get', '/v1/account');
   var cfg = stripeConfig_();
   if (cfg.mode !== 'test') throw new Error('test_mode_required');
+  var pickup = shippingQuote_('pickup', 1, null);
+  if (pickup.yen !== 0) throw new Error('pickup_must_be_free');
   var setupId = 'setup-' + Utilities.getUuid();
   var session = createCheckoutSession_({ mail: 'test@example.com', slug: '接続テスト' }, {
     qty: 1,
@@ -145,8 +147,8 @@ function authorizeStripe() {
     campaign: true,
     shippingMethod: 'smart',
     shippingLabel: 'スマートレター',
-    shippingYen: 210,
-    totalYen: 210
+    shippingYen: stripeFeeIncludedYen_(210),
+    totalYen: stripeFeeIncludedYen_(210)
   }, setupId);
   stripeRequest_('post', '/v1/checkout/sessions/' + session.id + '/expire', {});
   var msg = 'Stripe API : 接続OK（国=' + (account.country || '不明') +
@@ -223,8 +225,12 @@ function doPost(e) {
     var sheet = getSheet_();
     var token = slotStart ? Utilities.getUuid() : '';
     var isOrder = (d.type === 'ぷくぷくキーホルダー注文');
-    var wantsCheckout = isOrder && String(d.checkout || '') === '1';
-    var quote = wantsCheckout ? calculateOrderQuote_(d) : null;
+    var quote = isOrder ? calculateOrderQuote_(d) : null;
+    var directPickup = !!quote && quote.shippingMethod === 'pickup';
+    var wantsCheckout = isOrder && !directPickup && String(d.checkout || '') === '1';
+    if (isOrder && !directPickup && !wantsCheckout) {
+      return json({ ok: false, reason: 'checkout_required' });
+    }
     var orderId = isOrder ? Utilities.getUuid() : '';
     var row = [
       new Date(),
@@ -243,7 +249,7 @@ function doPost(e) {
       quote ? quote.grams : '',
       quote ? quote.unitPriceYen : '',
       quote ? quote.qty : '',
-      quote ? '決済待ち' : '',
+      quote ? (directPickup ? (quote.totalYen > 0 ? '受取時支払い' : '直接受取・支払なし') : '決済待ち') : '',
       '',
       quote ? quote.shippingLabel : '',
       quote ? quote.shippingYen : ''
@@ -255,7 +261,7 @@ function doPost(e) {
     // 注文記録を先に残してから、Stripe のホスト型決済画面を作る。
     // Stripe キーはスクリプトプロパティからだけ読み、ソースやブラウザへは返さない。
     var checkout = null;
-    if (quote) {
+    if (wantsCheckout) {
       try {
         checkout = createCheckoutSession_(d, quote, orderId);
         sheet.getRange(rowIndex, COL.STRIPE_SESSION).setValue(checkout.id || '');
@@ -281,20 +287,21 @@ function doPost(e) {
 
     // 注文者への自動返信（完成予想図つき）。任意項目なので失敗は無視。
     try {
-      if (d.previewPng && (!quote || checkout)) {
-        confirmOrder_(d.name || '', d.mail || '', d.previewPng, d.slug || '');
+      if (d.previewPng && (!quote || directPickup || checkout)) {
+        confirmOrder_(d.name || '', d.mail || '', d.previewPng, d.slug || '', directPickup);
       }
     } catch (e) {
       console.error('order confirm mail failed: ' + e);
     }
 
-    if (quote && !checkout) {
+    if (wantsCheckout && !checkout) {
       return json({ ok: false, reason: 'checkout_unavailable', orderId: orderId });
     }
     return json({
       ok: true,
       scheduled: !!slotStart,
       orderId: orderId || undefined,
+      directPickup: directPickup || undefined,
       checkoutUrl: checkout ? checkout.url : undefined,
       unitPriceYen: quote ? quote.unitPriceYen : undefined,
       shippingYen: quote ? quote.shippingYen : undefined,
@@ -705,22 +712,28 @@ var ORDER_MINIMUM_YEN = 900;
 var ORDER_ROUND_YEN = 100;
 var CREATOR_URL = 'https://shikine.github.io/neqo-fab/creator/';
 var AUGUST_CAMPAIGN_END_MS = Date.UTC(2026, 7, 31, 15, 0, 0); // 2026-09-01 00:00 JST
+var STRIPE_CARD_FEE_RATE = 0.036;
 
 function augustCampaignActive_() {
   return Date.now() < AUGUST_CAMPAIGN_END_MS;
 }
 
+function stripeFeeIncludedYen_(postageYen) {
+  return Math.ceil((postageYen / (1 - STRIPE_CARD_FEE_RATE)) / 10) * 10;
+}
+
 /** 全国一律の封筒料金（2026-08-25確認）。 */
 function shippingQuote_(method, qty, bounds) {
   var key = String(method || 'light').trim();
+  if (key === 'pickup') return { key: key, label: '直接受け取り', postageYen: 0, yen: 0 };
   if (key === 'smart') {
     if (qty !== 1) throw new Error('smart_letter_quantity');
     var fitsA5 = bounds && ((bounds.width <= 235 && bounds.height <= 155) ||
       (bounds.width <= 155 && bounds.height <= 235));
     if (!fitsA5) throw new Error('smart_letter_size');
-    return { key: key, label: 'スマートレター', yen: 210 };
+    return { key: key, label: 'スマートレター', postageYen: 210, yen: stripeFeeIncludedYen_(210) };
   }
-  if (key === 'light') return { key: key, label: 'レターパックライト', yen: 430 };
+  if (key === 'light') return { key: key, label: 'レターパックライト', postageYen: 430, yen: stripeFeeIncludedYen_(430) };
   throw new Error('bad_shipping_method');
 }
 
@@ -929,29 +942,37 @@ function buildOrderAttachments_(d) {
 }
 
 /** 注文者への自動返信（完成予想図PNGを添付）。 */
-function confirmOrder_(name, mail, previewPng, slug) {
+function confirmOrder_(name, mail, previewPng, slug, directPickup) {
   if (!mail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return;
   var png = decodeToBlob_(previewPng, 'image/png', (sanitizeSlug_(slug) || 'keychain') + '_preview.png');
   var replyTo = PropertiesService.getScriptProperties().getProperty('NOTIFY_TO')
              || Session.getEffectiveUser().getEmail();
+  var paymentLines = directPickup ? [
+    '直接受け取りでお申し込みを受け付けました。',
+    'オンライン決済はありません。受け取り日時と場所を、あらためてメールでご連絡します。'
+  ] : [
+    '続いて表示されるStripe画面で、商品代と送料をご確認のうえお支払いください。',
+    'Stripeでの決済が完了した時点で注文確定となります。',
+    '決済を中断した場合や領収メールが届かない場合は、二重に操作せずご連絡ください。'
+  ];
   var body = [
     (name ? name + ' 様' : 'ご注文ありがとうございます'),
     '',
     'ぷくぷくネームキーホルダーの注文データを受け付けました。',
     '完成予想図を添付しています。',
-    '',
-    '続いて表示されるStripe画面で、商品代と送料をご確認のうえお支払いください。',
-    'Stripeでの決済が完了した時点で注文確定となります。',
-    '決済を中断した場合や領収メールが届かない場合は、二重に操作せずご連絡ください。',
+    ''
+  ].concat(paymentLines).concat([
     '',
     'ご不明な点は、このメールにそのままご返信ください。',
     '',
     '— NEQO FAB（長野県富士見町）'
-  ].join('\n');
+  ]).join('\n');
   var options = { name: 'NEQO FAB', body: body };
   if (png) options.attachments = [png];
   if (replyTo) options.replyTo = replyTo;
-  MailApp.sendEmail(mail, '【NEQO FAB】注文データを受け付けました（決済前）', body, options);
+  MailApp.sendEmail(mail,
+    directPickup ? '【NEQO FAB】直接受け取りのお申し込みを受け付けました' : '【NEQO FAB】注文データを受け付けました（決済前）',
+    body, options);
 }
 
 /** ファイル名用に危険な文字を除去。 */

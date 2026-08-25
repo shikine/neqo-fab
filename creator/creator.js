@@ -52,10 +52,15 @@
     minimumYen: 900,       // 1個あたり最低価格
     roundYen: 100          // 表示価格の丸め単位（切り上げ）
   };
-  // 日本郵便の全国一律料金（2026-08-25確認）。
+  // Stripe国内カード手数料3.6%を差し引いても郵便料金を確保できるよう、10円単位で切り上げる。
+  var STRIPE_FEE_RATE = 0.036;
+  function stripeFeeIncludedYen(postageYen) {
+    return Math.ceil((postageYen / (1 - STRIPE_FEE_RATE)) / 10) * 10;
+  }
   var SHIPPING = {
-    smart: { label: 'スマートレター', yen: 210 },
-    light: { label: 'レターパックライト', yen: 430 }
+    smart: { label: 'スマートレター', postageYen: 210, yen: stripeFeeIncludedYen(210) },
+    light: { label: 'レターパックライト', postageYen: 430, yen: stripeFeeIncludedYen(430) },
+    pickup: { label: '直接受け取り', postageYen: 0, yen: 0 }
   };
   // 2026年8月31日 23:59（日本時間）まで、商品代は0円で送料のみ。
   var AUGUST_CAMPAIGN_END_MS = Date.parse('2026-09-01T00:00:00+09:00');
@@ -859,7 +864,7 @@
   function initOrder() {
     document.getElementById('cancelBtn').addEventListener('click', function () { dlg.close(); });
     document.getElementById('oQty').addEventListener('change', updateShippingChoices);
-    document.getElementById('oShipping').addEventListener('change', updateOrderPrice);
+    document.getElementById('oShipping').addEventListener('change', updateShippingChoices);
     document.getElementById('orderForm').addEventListener('submit', function (ev) {
       ev.preventDefault();
       submitOrder();
@@ -880,9 +885,20 @@
     var eligible = smartLetterEligible();
     smart.disabled = !eligible;
     if (!eligible && select.value === 'smart') select.value = 'light';
-    document.getElementById('oShippingNote').textContent = eligible
-      ? '全国一律。スマートレターは追跡なし、レターパックライトは追跡ありです。'
-      : 'この内容は梱包サイズのため、追跡付きレターパックライトで発送します。';
+    var pickup = select.value === 'pickup';
+    document.getElementById('oShippingNote').textContent = pickup
+      ? '送料・オンライン決済はありません。受付後、受け取り日時と場所をメールで調整します。'
+      : (eligible
+        ? '全国一律・Stripe手数料込み。スマートレターは追跡なし、レターパックライトは追跡ありです。'
+        : 'この内容は梱包サイズのため、手数料込み450円のレターパックライトで発送します。');
+    var sub = document.getElementById('orderDialogSub');
+    if (sub) sub.textContent = pickup
+      ? '直接受け取りは送料0円・オンライン決済なしです。送信後、受け取り日時と場所をメールで調整します。'
+      : (augustCampaignActive()
+        ? '8月限定キャンペーンのため商品代は0円です。Stripeの決済画面で送料のみをお支払いください。'
+        : '内容を送信後、Stripeの決済画面で商品代と送料を確認します。決済が完了するまで注文は確定しません。');
+    var send = document.getElementById('sendBtn');
+    if (send && !send.disabled) send.textContent = pickup ? '直接受け取りで申し込む' : 'Stripe決済へ進む';
     updateOrderPrice();
   }
 
@@ -895,8 +911,13 @@
       el.textContent = '6個以上は数量を確認してお見積りします。';
     } else {
       var goods = orderUnitPrice(lastEstimate) * qty;
-      el.textContent = (augustCampaignActive() ? '8月キャンペーン 商品代 ' : '商品 ') + yen(goods) +
-        ' ＋ ' + method.label + ' ' + yen(method.yen) + ' ＝ 合計 ' + yen(goods + method.yen);
+      if (method === SHIPPING.pickup) {
+        el.textContent = (augustCampaignActive() ? '8月キャンペーン 商品代 ' : '商品 ') + yen(goods) +
+          ' ＋ 直接受け取り ' + yen(0) + ' ＝ 合計 ' + yen(goods) + '（オンライン決済なし）';
+      } else {
+        el.textContent = (augustCampaignActive() ? '8月キャンペーン 商品代 ' : '商品 ') + yen(goods) +
+          ' ＋ ' + method.label + ' ' + yen(method.yen) + ' ＝ 合計 ' + yen(goods + method.yen) + '（手数料込み）';
+      }
     }
   }
 
@@ -925,8 +946,10 @@
       '\n\nSPEC=' + JSON.stringify(compactSpec()) +
       '\n（このメールは neqo-fab クリエイターから自動送信されています）';
 
+    var directPickup = shippingKey === 'pickup';
     var btn = document.getElementById('sendBtn');
     var label = btn.textContent; btn.disabled = true; btn.textContent = '出力中…';
+    var pickupSubmitted = false;
 
     // 部品STL（フチ／文字）と完成予想PNGを生成
     rebuild();                          // 念のため最新化
@@ -941,7 +964,7 @@
       hp: document.getElementById('oHidden').value,
       type: 'ぷくぷくキーホルダー注文',
       name: name, mail: mail, message: message,
-      slug: slug, qty: qty, shippingMethod: shippingKey, checkout: '1',
+      slug: slug, qty: qty, shippingMethod: shippingKey, checkout: directPickup ? '0' : '1',
       previewPng: previewPng,    // 管理者＆注文者へ添付する完成予想図
       borderStl: borderStl,      // 管理者へ添付：フチ（お皿）部品
       floorStl: floorStl,        // サーバー検算用：底
@@ -953,7 +976,14 @@
     fetch(ENDPOINT, { method: 'POST', body: payload })
       .then(function (r) { return r.json(); })
       .then(function (res) {
-        if (!res || !res.ok || !res.checkoutUrl) throw new Error((res && res.reason) || 'rejected');
+        if (!res || !res.ok) throw new Error((res && res.reason) || 'rejected');
+        if (directPickup) {
+          if (!res.directPickup) throw new Error('pickup_not_accepted');
+          pickupSubmitted = true;
+          say('ok', '<b>直接受け取りのお申し込みを受け付けました。</b><br>受け取り日時と場所をメールでご連絡します。');
+          return;
+        }
+        if (!res.checkoutUrl) throw new Error('checkout_unavailable');
         say('ok', '<b>Stripeの決済画面へ移動します。</b><br>金額と送料を確認してお支払いください。');
         window.location.assign(res.checkoutUrl);
       })
@@ -961,7 +991,10 @@
         console.error('checkout failed', err);
         say('err', '決済画面を準備できませんでした。注文記録は届いている場合があります。重ねて送信せず、NEQO FABへお問い合わせください。');
       })
-      .then(function () { btn.disabled = false; btn.textContent = label; });
+      .then(function () {
+        btn.disabled = pickupSubmitted;
+        btn.textContent = pickupSubmitted ? '申込完了' : label;
+      });
   }
 
   function paymentNotice(kind, html) {
