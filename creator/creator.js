@@ -682,13 +682,27 @@
 
   function updateTextCount() {
     var t = document.getElementById('text').value;
-    document.getElementById('textCount').textContent = Array.from(t.replace(/\n/g, '')).length + '文字';
+    var count = Array.from(t.replace(/\n/g, '')).length;
+    var lines = t.indexOf('\n') >= 0 ? 2 : 1;
+    document.getElementById('textCount').textContent = (lines > 1 ? lines + '行・' : '') + count + '文字';
+  }
+
+  function normalizeMultilineText(value) {
+    var lines = value.replace(/\r/g, '').split('\n').slice(0, 2);
+    var remaining = 12;
+    return lines.map(function (line) {
+      var chars = Array.from(line).slice(0, remaining);
+      remaining -= chars.length;
+      return chars.join('');
+    }).join('\n');
   }
 
   function initUI() {
     var textEl = document.getElementById('text');
     textEl.addEventListener('input', function () {
-      S.text = textEl.value; updateTextCount();
+      var normalized = normalizeMultilineText(textEl.value);
+      if (textEl.value !== normalized) textEl.value = normalized;
+      S.text = normalized; updateTextCount();
       var warn = document.getElementById('textWarn');
       var n = Array.from(textEl.value.replace(/\n/g, '')).length;
       if (n > 8) { warn.textContent = '文字数が多いと細部がつぶれやすくなります（8文字くらいまでが目安）。'; warn.classList.add('show'); }
