@@ -1000,19 +1000,39 @@
   function paymentNotice(kind, html) {
     var el = document.getElementById('paymentNotice');
     if (!el) return;
-    el.className = 'payment-notice show' + (kind === 'err' ? ' err' : '');
-    el.innerHTML = html;
+    el.className = 'payment-notice show' + (kind === 'err' ? ' err' : (kind === 'info' ? ' info' : ''));
+    el.innerHTML = html + '<button type="button" class="payment-notice-close" aria-label="お知らせを閉じる">×</button>';
+    el.querySelector('.payment-notice-close').addEventListener('click', function () {
+      el.className = 'payment-notice';
+      el.innerHTML = '';
+    });
+  }
+
+  function clearPaymentReturnParams() {
+    var url = new URL(window.location.href);
+    url.searchParams.delete('payment');
+    url.searchParams.delete('session_id');
+    history.replaceState(null, '', url.pathname + (url.search ? url.search : '') + url.hash);
   }
 
   function initPaymentReturn() {
     var q = new URLSearchParams(window.location.search);
     var state = q.get('payment');
     if (state === 'cancelled') {
-      paymentNotice('err', '<b>決済をキャンセルしました。</b> 料金は発生していません。内容を確認して、もう一度お進みください。');
+      clearPaymentReturnParams();
+      paymentNotice('info', '<b>決済は完了していません。</b> 料金は発生していません。引き続き内容を編集できます。');
+      window.setTimeout(function () {
+        var el = document.getElementById('paymentNotice');
+        if (el && el.classList.contains('info')) {
+          el.className = 'payment-notice';
+          el.innerHTML = '';
+        }
+      }, 8000);
       return;
     }
     if (state !== 'success') return;
     var sessionId = q.get('session_id') || '';
+    clearPaymentReturnParams();
     if (!/^cs_[A-Za-z0-9_]+$/.test(sessionId)) {
       paymentNotice('err', '決済結果を確認できませんでした。Stripeの領収メールをご確認ください。');
       return;
