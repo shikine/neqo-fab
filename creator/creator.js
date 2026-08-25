@@ -649,15 +649,19 @@
   // ======================================================================
   function buildSwatches(hostId, key) {
     var host = document.getElementById(hostId);
+    var nameEl = document.getElementById(hostId + 'Name');
     host.innerHTML = '';
     PALETTE.forEach(function (c) {
       var b = document.createElement('button');
-      b.className = 'swatch'; b.style.background = c[0]; b.title = c[1];
+      b.type = 'button'; b.className = 'swatch'; b.style.background = c[0]; b.title = c[1];
+      b.setAttribute('aria-label', c[1]);
       b.setAttribute('aria-pressed', S[key] === c[0] ? 'true' : 'false');
+      if (S[key] === c[0] && nameEl) nameEl.textContent = c[1];
       b.addEventListener('click', function () {
         S[key] = c[0];
         host.querySelectorAll('.swatch').forEach(function (s) { s.setAttribute('aria-pressed', 'false'); });
         b.setAttribute('aria-pressed', 'true');
+        if (nameEl) nameEl.textContent = c[1];
         rebuild();
       });
       host.appendChild(b);
