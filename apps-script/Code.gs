@@ -137,15 +137,17 @@ function authorizeStripe() {
   var account = stripeRequest_('get', '/v1/account');
   var cfg = stripeConfig_();
   if (cfg.mode !== 'test') throw new Error('test_mode_required');
-  var session = stripeRequest_('post', '/v1/checkout/sessions', {
-    mode: 'payment',
-    success_url: CREATOR_URL + '?stripe_test=success',
-    cancel_url: CREATOR_URL + '?stripe_test=cancelled',
-    'line_items[0][quantity]': '1',
-    'line_items[0][price_data][currency]': 'jpy',
-    'line_items[0][price_data][unit_amount]': '100',
-    'line_items[0][price_data][product_data][name]': 'NEQO FAB Stripe接続テスト'
-  }, 'neqo-setup-' + Utilities.getUuid());
+  var setupId = 'setup-' + Utilities.getUuid();
+  var session = createCheckoutSession_({ mail: 'test@example.com', slug: '接続テスト' }, {
+    qty: 1,
+    grams: 1,
+    unitPriceYen: 0,
+    campaign: true,
+    shippingMethod: 'smart',
+    shippingLabel: 'スマートレター',
+    shippingYen: 210,
+    totalYen: 210
+  }, setupId);
   stripeRequest_('post', '/v1/checkout/sessions/' + session.id + '/expire', {});
   var msg = 'Stripe API : 接続OK（国=' + (account.country || '不明') +
     '）／Checkout作成・失効ともにOK（請求なし）';
@@ -702,6 +704,11 @@ var ORDER_YEN_PER_GRAM = 50;
 var ORDER_MINIMUM_YEN = 900;
 var ORDER_ROUND_YEN = 100;
 var CREATOR_URL = 'https://shikine.github.io/neqo-fab/creator/';
+var AUGUST_CAMPAIGN_END_MS = Date.UTC(2026, 7, 31, 15, 0, 0); // 2026-09-01 00:00 JST
+
+function augustCampaignActive_() {
+  return Date.now() < AUGUST_CAMPAIGN_END_MS;
+}
 
 /** 全国一律の封筒料金（2026-08-25確認）。 */
 function shippingQuote_(method, qty, bounds) {
@@ -773,12 +780,16 @@ function calculateOrderQuote_(d) {
   if (!isFinite(grams) || grams < 0.5 || grams > 250) throw new Error('bad_material_amount');
 
   var raw = Math.max(ORDER_MINIMUM_YEN, ORDER_BASE_YEN + grams * ORDER_YEN_PER_GRAM);
-  var unit = Math.ceil(raw / ORDER_ROUND_YEN) * ORDER_ROUND_YEN;
+  var regularUnit = Math.ceil(raw / ORDER_ROUND_YEN) * ORDER_ROUND_YEN;
+  var campaign = augustCampaignActive_();
+  var unit = campaign ? 0 : regularUnit;
   var shipping = shippingQuote_(d.shippingMethod, qty, floorMetrics);
   return {
     qty: qty,
     grams: Math.round(grams * 10) / 10,
     unitPriceYen: unit,
+    regularUnitPriceYen: regularUnit,
+    campaign: campaign,
     shippingMethod: shipping.key,
     shippingLabel: shipping.label,
     shippingYen: shipping.yen,
@@ -826,17 +837,27 @@ function createCheckoutSession_(d, quote, orderId) {
     cancel_url: cancel,
     client_reference_id: orderId,
     customer_email: String(d.mail || '').slice(0, 800),
-    'line_items[0][quantity]': String(quote.qty),
-    'line_items[0][price_data][currency]': 'jpy',
-    'line_items[0][price_data][unit_amount]': String(quote.unitPriceYen),
-    'line_items[0][price_data][product_data][name]': 'ぷくぷくネームキーホルダー',
-    'line_items[0][price_data][product_data][description]': String(d.slug || 'オーダー文字').slice(0, 120),
     'shipping_address_collection[allowed_countries][0]': 'JP',
     'metadata[order_id]': orderId,
     'metadata[grams]': String(quote.grams),
-    'metadata[quantity]': String(quote.qty)
+    'metadata[quantity]': String(quote.qty),
+    'metadata[campaign]': quote.campaign ? 'august_2026_shipping_only' : 'none'
   };
-  if (quote.shippingYen > 0) {
+  if (quote.campaign) {
+    payload['line_items[0][quantity]'] = '1';
+    payload['line_items[0][price_data][currency]'] = 'jpy';
+    payload['line_items[0][price_data][unit_amount]'] = String(quote.shippingYen);
+    payload['line_items[0][price_data][product_data][name]'] = '8月限定キャンペーン配送料';
+    payload['line_items[0][price_data][product_data][description]'] =
+      quote.shippingLabel + '／ぷくぷくネームキーホルダー ' + quote.qty + '個';
+  } else {
+    payload['line_items[0][quantity]'] = String(quote.qty);
+    payload['line_items[0][price_data][currency]'] = 'jpy';
+    payload['line_items[0][price_data][unit_amount]'] = String(quote.unitPriceYen);
+    payload['line_items[0][price_data][product_data][name]'] = 'ぷくぷくネームキーホルダー';
+    payload['line_items[0][price_data][product_data][description]'] = String(d.slug || 'オーダー文字').slice(0, 120);
+  }
+  if (!quote.campaign && quote.shippingYen > 0) {
     payload['shipping_options[0][shipping_rate_data][type]'] = 'fixed_amount';
     payload['shipping_options[0][shipping_rate_data][display_name]'] = quote.shippingLabel;
     payload['shipping_options[0][shipping_rate_data][fixed_amount][amount]'] = String(quote.shippingYen);

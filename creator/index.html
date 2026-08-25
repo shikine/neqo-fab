@@ -127,6 +127,11 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .sent.ok{background:color-mix(in srgb,var(--blue) 22%,var(--paper));border:1px solid var(--blue)}
 .sent.err{background:color-mix(in srgb,var(--key) 18%,var(--paper));border:1px solid var(--key)}
 .dlg .foot{display:flex;gap:10px;justify-content:flex-end;margin-top:6px}
+.campaign{margin:16px 0 20px;padding:14px 16px;border:1px solid color-mix(in srgb,var(--key) 55%,var(--line));
+  border-radius:14px;background:color-mix(in srgb,var(--key) 12%,var(--paper));display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
+.campaign[hidden]{display:none}
+.campaign b{color:var(--key);font-size:16px}.campaign span{font-size:13px;color:var(--ink-soft)}
+.campaign-old{font-size:12px;color:var(--ink-soft);text-decoration:line-through;font-weight:500}
 footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
   font-family:var(--mono);font-size:11px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
 </style>
@@ -139,6 +144,10 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
   </header>
   <h1>名前を打つだけ。<span class="em">ぷくぷく</span>キーホルダー。</h1>
   <p class="lead">文字と色を選ぶと、その場で立体プレビュー。気に入ったら、そのまま注文できます。1文字ずつ膨らんだ「ぷくぷく文字」と、まわりを縁取るぷくぷくフチ。八ヶ岳のふもと・NEQO FAB がひとつずつ作ります。</p>
+  <div class="campaign" id="campaignBanner" hidden>
+    <b>8月限定キャンペーン｜商品代0円</b>
+    <span>8月31日 23:59まで。スマートレター210円またはレターパックライト430円の送料だけでお届けします。</span>
+  </div>
   <div class="payment-notice" id="paymentNotice" role="status"></div>
 
   <div class="app">
@@ -208,7 +217,7 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
         </div>
         <div class="estimate" aria-live="polite">
           <div class="box"><span>材料使用量</span><b id="materialWeight">計算中…</b></div>
-          <div class="box"><span>参考価格／1個</span><b id="estimatedPrice">計算中…</b></div>
+          <div class="box"><span id="estimatedPriceLabel">参考価格／1個</span><b id="estimatedPrice">計算中…</b></div>
         </div>
         <span class="estimate-note" id="estimateBreakdown">立体形状から文字・フチを別出力する前提で概算します。送料は含みません。</span>
       </div>
@@ -232,7 +241,7 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
 <dialog id="orderDlg">
   <form class="dlg" id="orderForm" method="dialog">
     <h3>注文内容の確認</h3>
-    <p class="sub">内容を送信後、Stripeの決済画面で商品代と送料を確認します。決済が完了するまで注文は確定しません。</p>
+    <p class="sub" id="orderDialogSub">内容を送信後、Stripeの決済画面で商品代と送料を確認します。決済が完了するまで注文は確定しません。</p>
     <div class="summary">
       <img id="ordImg" alt="プレビュー">
       <div class="meta" id="ordMeta"></div>
@@ -277,6 +286,6 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js"></script>
-<script src="creator.js?v=20260825-letter"></script>
+<script src="creator.js?v=20260825-campaign"></script>
 </body>
 </html>

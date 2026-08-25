@@ -57,6 +57,10 @@
     smart: { label: 'スマートレター', yen: 210 },
     light: { label: 'レターパックライト', yen: 430 }
   };
+  // 2026年8月31日 23:59（日本時間）まで、商品代は0円で送料のみ。
+  var AUGUST_CAMPAIGN_END_MS = Date.parse('2026-09-01T00:00:00+09:00');
+  function augustCampaignActive() { return Date.now() < AUGUST_CAMPAIGN_END_MS; }
+  function orderUnitPrice(estimate) { return augustCampaignActive() ? 0 : estimate.priceYen; }
   var MATERIAL_MARGIN = 1.08; // スライサー差・端材を見込む8%
   var JOB_OVERHEAD_G = 0.35;  // 別出力1回あたりのスカート／開始線など
 
@@ -606,13 +610,28 @@
     var e = lastEstimate;
     var weight = document.getElementById('materialWeight');
     var price = document.getElementById('estimatedPrice');
+    var priceLabel = document.getElementById('estimatedPriceLabel');
     var note = document.getElementById('estimateBreakdown');
     if (weight) weight.textContent = '約 ' + e.grams.toFixed(1) + ' g';
-    if (price) price.textContent = yen(e.priceYen);
-    if (note) note.textContent =
-      '文字 ' + e.textG.toFixed(1) + 'g ＋ フチ ' + e.borderG.toFixed(1) + 'g' +
-      '（別出力の予備分込み）／材料原価 約' + Math.ceil(e.materialYen) + '円。送料別の参考価格です。';
+    if (priceLabel) priceLabel.textContent = augustCampaignActive() ? '8月キャンペーン／1個' : '参考価格／1個';
+    if (price) price.innerHTML = augustCampaignActive()
+      ? '<span class="campaign-old">通常 ' + yen(e.priceYen) + '</span><br>¥0'
+      : yen(e.priceYen);
+    if (note) note.textContent = augustCampaignActive()
+      ? '8月31日23:59まで商品代0円。お支払いは送料のみです。材料使用量は製作管理用に計算しています。'
+      : '文字 ' + e.textG.toFixed(1) + 'g ＋ フチ ' + e.borderG.toFixed(1) + 'g' +
+        '（別出力の予備分込み）／材料原価 約' + Math.ceil(e.materialYen) + '円。送料別の参考価格です。';
     updateOrderPrice();
+  }
+
+  function updateCampaignUI() {
+    var active = augustCampaignActive();
+    var banner = document.getElementById('campaignBanner');
+    var sub = document.getElementById('orderDialogSub');
+    if (banner) banner.hidden = !active;
+    if (sub) sub.textContent = active
+      ? '8月限定キャンペーンのため商品代は0円です。Stripeの決済画面で送料のみをお支払いください。'
+      : '内容を送信後、Stripeの決済画面で商品代と送料を確認します。決済が完了するまで注文は確定しません。';
   }
 
   function sanitize(t) {
@@ -791,6 +810,7 @@
       textColor: S.textColor, borderColor: S.borderColor,
       border: +S.border.toFixed(1), ring: S.ring, ringSide: S.ringSide,
       material: MATERIAL.key, grams: +e.grams.toFixed(1), priceYen: e.priceYen,
+      campaignPriceYen: orderUnitPrice(e),
       t_text: T_TEXT, t_floor: FLOOR, t_wall: WALL
     };
   }
@@ -809,7 +829,9 @@
       '金具リング: ' + (S.ring ? (S.ringSide === 'left' ? '左' : '右') : 'なし'),
       '概寸: 約 ' + Math.round(bb.w) + ' × ' + Math.round(bb.h) + ' × ' + th.toFixed(1) + ' mm',
       '材料: ' + e.materialLabel + '／約 ' + e.grams.toFixed(1) + ' g（文字 ' + e.textG.toFixed(1) + 'g・フチ ' + e.borderG.toFixed(1) + 'g）',
-      '参考価格: ' + yen(e.priceYen) + '／1個（送料別）'
+      (augustCampaignActive()
+        ? '8月キャンペーン価格: ¥0／1個（送料のみ）'
+        : '参考価格: ' + yen(e.priceYen) + '／1個（送料別）')
     ].join('\n');
   }
   function colorName(hex) {
@@ -827,7 +849,8 @@
       '<span>' + FONTS[S.font].label + '／ぷくぷく ' + S.puff.toFixed(2) + '</span>' +
       '<span>文字：' + colorName(S.textColor) + '　フチ：' + (S.border > 0.01 ? colorName(S.borderColor) : 'なし') + '</span>' +
       '<span>約 ' + Math.round(bb.w) + '×' + Math.round(bb.h) + '×' + th.toFixed(1) + ' mm</span>' +
-      '<span>' + e.materialLabel + ' 約' + e.grams.toFixed(1) + 'g／参考価格 ' + yen(e.priceYen) + '</span>';
+      '<span>' + e.materialLabel + ' 約' + e.grams.toFixed(1) + 'g／' +
+        (augustCampaignActive() ? '8月キャンペーン 商品代¥0' : '参考価格 ' + yen(e.priceYen)) + '</span>';
     updateShippingChoices();
     document.getElementById('sent').className = 'sent';
     if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
@@ -871,8 +894,9 @@
     if (!isFinite(qty)) {
       el.textContent = '6個以上は数量を確認してお見積りします。';
     } else {
-      var goods = lastEstimate.priceYen * qty;
-      el.textContent = '商品 ' + yen(goods) + ' ＋ ' + method.label + ' ' + yen(method.yen) + ' ＝ 合計 ' + yen(goods + method.yen);
+      var goods = orderUnitPrice(lastEstimate) * qty;
+      el.textContent = (augustCampaignActive() ? '8月キャンペーン 商品代 ' : '商品 ') + yen(goods) +
+        ' ＋ ' + method.label + ' ' + yen(method.yen) + ' ＝ 合計 ' + yen(goods + method.yen);
     }
   }
 
@@ -892,8 +916,9 @@
     var qty = document.getElementById('oQty').value;
     var qtyNum = parseInt(qty, 10);
     var note = document.getElementById('oNote').value.trim();
+    var campaignUnit = lastEstimate ? orderUnitPrice(lastEstimate) : 0;
     var priceTotal = isFinite(qtyNum) && lastEstimate
-      ? ('\n商品代: ' + yen(lastEstimate.priceYen * qtyNum) + '\n' + shipping.label + ': ' + yen(shipping.yen) + '\n合計: ' + yen(lastEstimate.priceYen * qtyNum + shipping.yen))
+      ? ('\n商品代: ' + yen(campaignUnit * qtyNum) + '\n' + shipping.label + ': ' + yen(shipping.yen) + '\n合計: ' + yen(campaignUnit * qtyNum + shipping.yen))
       : '';
     var message = specText() + '\n個数: ' + qty + priceTotal + (note ? ('\nご要望: ' + note) : '') +
       '\n配送方法: ' + shipping.label +
@@ -996,6 +1021,7 @@
   function boot() {
     resize();
     initUI();
+    updateCampaignUI();
     initPaymentReturn();
     ensureFonts(neededFontKeys(DEFAULTS.font, DEFAULTS.text), function () {
       document.getElementById('load').classList.add('done');
