@@ -75,6 +75,8 @@
   var T_BORDER = 2.4;     // （旧）未使用。フチ厚は T_TEXT + RIM_LIP
   var GAP = 0.7;          // 文字とフチの間の“堀”。0だと内壁が文字に食い込んで潰れて見える
   var RING_HOLE = 4.0, RING_WALL = 2.2;
+  var MAX_MODEL_W = 200, MAX_MODEL_H = 200; // Enderで安全に扱う完成サイズ上限（mm）
+  var MODEL_EDGE_RESERVE = 2.0;             // ぷくぷく面取り分の外側余白（全幅・全高）
   var FLOOR = 1.2;        // お皿の底の厚み mm（フチ部品の底面）。文字はこの上に乗る
   var WALL = 1.4;         // 底から立ち上がる壁の高さ mm（お皿のフチ）
   var LETTER_SPACING = 0.06;   // em 比
@@ -125,6 +127,7 @@
   var meshGroup = new THREE.Group();
   root.add(meshGroup);
   var borderMesh = null, textMesh = null;   // 出力用に保持
+  var lastModelScale = 1;
 
   // 背面のシャドウキャッチャー（白背景に浮かせず接地させる）
   var shadowPlane = new THREE.Mesh(
@@ -260,6 +263,34 @@
     return { contours: allContours, width: maxW, height: realH };
   }
 
+  function contourBounds(contours) {
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    contours.forEach(function (c) { c.forEach(function (p) {
+      if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+      if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+    }); });
+    if (!isFinite(minX)) return { minX: 0, minY: 0, maxX: 0, maxY: 0, w: 0, h: 0 };
+    return { minX: minX, minY: minY, maxX: maxX, maxY: maxY, w: maxX - minX, h: maxY - minY };
+  }
+
+  // 縁・金具は強度に関わるので実寸を維持し、文字輪郭だけを均等縮小して
+  // 完成品が安全余白込みで200×200mm以内に収まるようにする。
+  function fitLayoutToModelLimit(lay) {
+    var b = contourBounds(lay.contours);
+    if (!b.w || !b.h) { lastModelScale = 1; return lay; }
+    var hasBorder = S.border > 0.01;
+    var pad = hasBorder ? GAP + S.border : 0;
+    var ringExtra = (hasBorder && S.ring) ? (RING_HOLE + RING_WALL) : 0;
+    var usableW = Math.max(1, MAX_MODEL_W - MODEL_EDGE_RESERVE - pad * 2 - ringExtra);
+    var usableH = Math.max(1, MAX_MODEL_H - MODEL_EDGE_RESERVE - pad * 2);
+    var scale = Math.min(1, usableW / b.w, usableH / b.h);
+    lastModelScale = scale;
+    if (scale >= 0.9999) return lay;
+    lay.contours.forEach(function (c) { c.forEach(function (p) { p[0] *= scale; p[1] *= scale; }); });
+    lay.width *= scale; lay.height *= scale;
+    return lay;
+  }
+
   // ======================================================================
   //  輪郭ポリゴン → THREE.Shape（穴つき）
   // ======================================================================
@@ -392,6 +423,50 @@
     return p;
   }
 
+  function clipBounds(paths) {
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    paths.forEach(function (path) { path.forEach(function (p) {
+      if (p.X < minX) minX = p.X; if (p.X > maxX) maxX = p.X;
+      if (p.Y < minY) minY = p.Y; if (p.Y > maxY) maxY = p.Y;
+    }); });
+    if (!isFinite(minX)) return { minX: 0, minY: 0, maxX: 0, maxY: 0, w: 0, h: 0 };
+    return { minX: minX / SC, minY: minY / SC, maxX: maxX / SC, maxY: maxY / SC,
+      w: (maxX - minX) / SC, h: (maxY - minY) / SC };
+  }
+
+  // y=0を横切る実際のフチ外形から左右端を求める。
+  // 文字の送り幅ではなく生成済み輪郭を使うため、字面の余白が大きい文字でも金具が離れない。
+  function ringAnchor(paths, side) {
+    var y = 0, edge = side < 0 ? Infinity : -Infinity, found = false;
+    paths.forEach(function (path) {
+      for (var i = 0; i < path.length; i++) {
+        var a = path[i], b = path[(i + 1) % path.length];
+        if (a.Y === b.Y) {
+          if (a.Y !== y) continue;
+          [a.X, b.X].forEach(function (x) {
+            if ((side < 0 && x < edge) || (side > 0 && x > edge)) edge = x;
+            found = true;
+          });
+          continue;
+        }
+        if (y < Math.min(a.Y, b.Y) || y > Math.max(a.Y, b.Y)) continue;
+        var t = (y - a.Y) / (b.Y - a.Y);
+        var x = a.X + (b.X - a.X) * t;
+        if ((side < 0 && x < edge) || (side > 0 && x > edge)) edge = x;
+        found = true;
+      }
+    });
+    if (found) return { x: edge / SC, y: 0 };
+
+    // y=0を外形が通らない場合は、中央に近く外側にも近い頂点を採用する。
+    var best = null, bestScore = -Infinity;
+    paths.forEach(function (path) { path.forEach(function (p) {
+      var score = side * p.X - Math.abs(p.Y) * 0.25;
+      if (score > bestScore) { bestScore = score; best = p; }
+    }); });
+    return best ? { x: best.X / SC, y: best.Y / SC } : { x: 0, y: 0 };
+  }
+
   // 縁取り＝名前の外周に沿って立ち上がる「器のフチ」。
   // 外シルエット（sil）を内側の縁、それを外へ width 広げた線を外側の縁とする帯。
   // 中央（＝文字が入る領域）は空きにするので、下地プレートではなく“枠/器”になる。
@@ -419,12 +494,18 @@
 
     var floor = outer;                          // 底は外形いっぱいの塗り面
     if (ring) {
+      var anchor = ringAnchor(outer, ring.side);
+      ring.cx = anchor.x + ring.side * ring.rIn;
+      ring.cy = anchor.y;
       var lug = circlePath(ring.cx, ring.cy, ring.rOut, 48);
       var hole = circlePath(ring.cx, ring.cy, ring.rIn, 40);
-      floor = differencePaths(unionPaths(floor.concat([lug])), [hole]);
-      band = differencePaths(unionPaths(band.concat([lug])), [hole]);
+      // 付け根側にも丸い補強を重ね、面取り後も細い接点にならないようにする。
+      var rootR = Math.min(ring.rOut * 0.78, Math.max(1.2, GAP + width - 0.35));
+      var root = circlePath(anchor.x - ring.side * 0.25, anchor.y, rootR, 40);
+      floor = differencePaths(unionPaths(floor.concat([lug, root])), [hole]);
+      band = differencePaths(unionPaths(band.concat([lug, root])), [hole]);
     }
-    return { floor: pathsToShapes(floor), rim: pathsToShapes(band) };
+    return { floor: pathsToShapes(floor), rim: pathsToShapes(band), bounds: clipBounds(floor), ring: ring };
   }
 
   // ======================================================================
@@ -455,7 +536,7 @@
     clearGroup(meshGroup);
     borderMesh = null; textMesh = null;
 
-    var lay = layoutText(S.font, text);
+    var lay = fitLayoutToModelLimit(layoutText(S.font, text));
     if (!lay.contours.length) { invalidate(); return; }
 
     var textMat = material(S.textColor);
@@ -466,9 +547,7 @@
     if (S.ring && S.border > 0.01) {
       var side = (S.ringSide === 'left' ? -1 : 1);
       var rOut = RING_HOLE / 2 + RING_WALL;
-      var outerEdge = lay.width / 2 + GAP + S.border;   // フチ外端の x
-      var cx = side * (outerEdge + RING_HOLE / 2);       // パッド中心（RING_WALL 分フチに食い込む）
-      ringOpt = { cx: cx, cy: 0, rOut: rOut, rIn: RING_HOLE / 2 };
+      ringOpt = { side: side, rOut: rOut, rIn: RING_HOLE / 2 };
     }
 
     // フチ＝お皿。底(floor)＋外周の壁(rim)。底面は z=0。
@@ -502,15 +581,19 @@
     meshGroup.add(tmesh);
     textMesh = tmesh;
 
-    // 金具穴はフチに含めたので、寸法だけ張り出し分を見込む
-    var overall = computeBBox(lay, borderShapes ? S.border + GAP : 0);
+    // 実際に生成した外形から完成寸法を取る。片側だけ張り出す金具も正確に反映する。
+    var actualBounds = borderShapes ? borderShapes.bounds : contourBounds(lay.contours);
+    var overall = {
+      w: actualBounds.w, h: actualBounds.h,
+      fitW: 2 * Math.max(Math.abs(actualBounds.minX), Math.abs(actualBounds.maxX)),
+      fitH: 2 * Math.max(Math.abs(actualBounds.minY), Math.abs(actualBounds.maxY))
+    };
     lastBBox = overall;
-    if (ringOpt) overall.w += RING_HOLE + RING_WALL * 2;
 
     meshGroup.position.set(0, 0, 0);
 
     // 背面シャドウキャッチャー（底面 z=0 のさらに裏に置く）
-    shadowPlane.scale.set(Math.max(overall.w, overall.h) * 2.0, Math.max(overall.w, overall.h) * 2.0, 1);
+    shadowPlane.scale.set(Math.max(overall.fitW, overall.fitH) * 2.0, Math.max(overall.fitW, overall.fitH) * 2.0, 1);
     shadowPlane.position.set(0, 0, -1.2);
 
     lastFit = overall;
@@ -531,11 +614,12 @@
     var aspect = camera.aspect || 1.6;
     var vFov = camera.fov * Math.PI / 180;
     var margin = 1.18;
-    var halfH = bb.h * 0.5 * margin;
-    var halfW = bb.w * 0.5 * margin;
+    var fitW = bb.fitW || bb.w, fitH = bb.fitH || bb.h;
+    var halfH = fitH * 0.5 * margin;
+    var halfW = fitW * 0.5 * margin;
     var distH = halfH / Math.tan(vFov / 2);
     var distW = (halfW / aspect) / Math.tan(vFov / 2);
-    var dist = Math.max(distH, distW) + Math.max(bb.w, bb.h) * 0.15 + 20;
+    var dist = Math.max(distH, distW) + Math.max(fitW, fitH) * 0.15 + 20;
 
     controls.target.set(0, 0, 0);
     // 初回だけ向きを決める。以後はユーザーの回転量を保って距離だけ合わせる。
@@ -552,11 +636,21 @@
 
   function updateDims(bb) {
     var el = document.getElementById('dims');
+    var note = document.getElementById('sizeLimitNote');
     var th = (S.border > 0.01 ? (FLOOR + T_TEXT) : T_TEXT);
     el.innerHTML =
       '横 <b>' + Math.round(bb.w) + '</b> mm　' +
       '縦 <b>' + Math.round(bb.h) + '</b> mm　' +
       '厚み <b>' + th.toFixed(1) + '</b> mm';
+    if (note) {
+      if (lastModelScale < 0.999) {
+        note.className = 'size-limit adjusted';
+        note.textContent = '20cm以内に収めるため、文字サイズを' + Math.round(lastModelScale * 100) + '%に自動調整しました。';
+      } else {
+        note.className = 'size-limit';
+        note.textContent = '最大造形サイズ：横200 × 縦200 mm';
+      }
+    }
   }
 
   // 閉じた三角形メッシュの符号付き四面体体積から体積(mm³)を求める。
@@ -745,6 +839,8 @@
       document.getElementById('ring').checked = S.ring;
       syncSeg('fontSeg', 'font', S.font); syncSeg('ringSeg', 'side', S.ringSide);
       buildSwatches('swText', 'textColor'); buildSwatches('swBorder', 'borderColor');
+      document.getElementById('textWarn').classList.remove('show');
+      document.getElementById('textWarn').textContent = '';
       updateTextCount();
       rebuild();
     });
@@ -874,12 +970,15 @@
 
   function compactSpec() {
     var e = lastEstimate || calculateEstimate();
+    var bb = lastBBox || { w: 0, h: 0 };
     return {
       v: 2, text: S.text, font: S.font, puff: +S.puff.toFixed(2),
       textColor: S.textColor, borderColor: S.borderColor,
       border: +S.border.toFixed(1), ring: S.ring, ringSide: S.ringSide,
       material: MATERIAL.key, grams: +e.grams.toFixed(1), priceYen: e.priceYen,
       campaignPriceYen: orderUnitPrice(e),
+      width_mm: +bb.w.toFixed(1), height_mm: +bb.h.toFixed(1), layout_scale: +lastModelScale.toFixed(3),
+      max_size_mm: [MAX_MODEL_W, MAX_MODEL_H],
       t_text: T_TEXT, t_floor: FLOOR, t_wall: WALL
     };
   }
@@ -897,6 +996,7 @@
       'フチ: ' + (S.border > 0.01 ? (S.border.toFixed(1) + 'mm ' + colorName(S.borderColor) + ' (' + S.borderColor + ')') : 'なし'),
       '金具リング: ' + (S.ring ? (S.ringSide === 'left' ? '左' : '右') : 'なし'),
       '概寸: 約 ' + Math.round(bb.w) + ' × ' + Math.round(bb.h) + ' × ' + th.toFixed(1) + ' mm',
+      (lastModelScale < 0.999 ? '20cm制限: 文字サイズを' + Math.round(lastModelScale * 100) + '%に自動調整' : '20cm制限: 調整なし'),
       '材料: ' + e.materialLabel + '／約 ' + e.grams.toFixed(1) + ' g（文字 ' + e.textG.toFixed(1) + 'g・フチ ' + e.borderG.toFixed(1) + 'g）',
       (augustCampaignActive()
         ? '8月キャンペーン価格: ¥0／1個（送料のみ）'

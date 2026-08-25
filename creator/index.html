@@ -112,6 +112,8 @@ input[type=color]{width:0;height:0;opacity:0;position:absolute;pointer-events:no
 
 .dims{font-family:var(--mono);font-size:11px;color:var(--ink-soft);display:flex;gap:14px;flex-wrap:wrap}
 .dims b{color:var(--ink);font-weight:700}
+.size-limit{font-size:10.5px;color:var(--ink-soft);border-radius:9px;padding:6px 8px;background:#FFFBFD;border:1px solid var(--line)}
+.size-limit.adjusted{color:var(--key);font-weight:700;background:#FFF0F4;border-color:#F6C7D4}
 .estimate{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .estimate .box{border:1px solid var(--line);border-radius:12px;padding:9px 10px;background:#FFFBFD}
 .estimate .box span{display:block;font-size:10px;color:var(--ink-soft);margin-bottom:2px}
@@ -187,6 +189,7 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
   .row{gap:7px}
   .toggle{font-size:12px}
   .dims{font-size:10px;gap:9px}
+  .size-limit{font-size:9.5px;padding:5px 7px}
   .estimate{margin-top:4px;gap:6px}
   .estimate .box{padding:7px 8px;border-radius:8px}
   .estimate .box b{font-size:14px}
@@ -276,6 +279,7 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
           </div>
         </div>
         <div class="dims" id="dims"></div>
+        <span class="size-limit" id="sizeLimitNote">最大造形サイズ：横200 × 縦200 mm</span>
       </div>
 
       <div class="panel">
@@ -356,6 +360,6 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js"></script>
-<script src="creator.js?v=20260825-multiline"></script>
+<script src="creator.js?v=20260825-ring-limit"></script>
 </body>
 </html>
