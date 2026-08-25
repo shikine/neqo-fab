@@ -113,9 +113,42 @@ function checkSetup() {
   var stripeReady = (stripeMode === 'test' && stripeKey.indexOf('sk_test_') === 0) ||
     (stripeMode === 'live' && stripeKey.indexOf('sk_live_') === 0);
   out.push('Stripe : ' + (stripeReady ? '設定済み' : '未設定またはモード不一致') + '（' + stripeMode + '）');
+  if (stripeReady) {
+    try {
+      var stripeAccount = stripeRequest_('get', '/v1/account');
+      out.push('Stripe API : 接続OK（国=' + (stripeAccount.country || '不明') +
+        '／決済=' + (stripeAccount.charges_enabled ? '有効' : '未有効') + '）');
+    } catch (e) {
+      out.push('Stripe API : 接続NG → ' + e);
+    }
+  }
   out.push('配送 : スマートレター 210円／レターパックライト 430円');
 
   var msg = out.join('\n');
+  console.log(msg);
+  return msg;
+}
+
+/**
+ * Stripeへの外部通信権限を初回承認するため、エディタから1度だけ実行する。
+ * テスト用Checkout Sessionを作成して直ちに失効させるため、請求は発生しない。
+ */
+function authorizeStripe() {
+  var account = stripeRequest_('get', '/v1/account');
+  var cfg = stripeConfig_();
+  if (cfg.mode !== 'test') throw new Error('test_mode_required');
+  var session = stripeRequest_('post', '/v1/checkout/sessions', {
+    mode: 'payment',
+    success_url: CREATOR_URL + '?stripe_test=success',
+    cancel_url: CREATOR_URL + '?stripe_test=cancelled',
+    'line_items[0][quantity]': '1',
+    'line_items[0][price_data][currency]': 'jpy',
+    'line_items[0][price_data][unit_amount]': '100',
+    'line_items[0][price_data][product_data][name]': 'NEQO FAB Stripe接続テスト'
+  }, 'neqo-setup-' + Utilities.getUuid());
+  stripeRequest_('post', '/v1/checkout/sessions/' + session.id + '/expire', {});
+  var msg = 'Stripe API : 接続OK（国=' + (account.country || '不明') +
+    '）／Checkout作成・失効ともにOK（請求なし）';
   console.log(msg);
   return msg;
 }
@@ -793,9 +826,9 @@ function createCheckoutSession_(d, quote, orderId) {
     cancel_url: cancel,
     client_reference_id: orderId,
     customer_email: String(d.mail || '').slice(0, 800),
-    'line_items[0][quantity]': quote.qty,
+    'line_items[0][quantity]': String(quote.qty),
     'line_items[0][price_data][currency]': 'jpy',
-    'line_items[0][price_data][unit_amount]': quote.unitPriceYen,
+    'line_items[0][price_data][unit_amount]': String(quote.unitPriceYen),
     'line_items[0][price_data][product_data][name]': 'ぷくぷくネームキーホルダー',
     'line_items[0][price_data][product_data][description]': String(d.slug || 'オーダー文字').slice(0, 120),
     'shipping_address_collection[allowed_countries][0]': 'JP',
@@ -806,7 +839,7 @@ function createCheckoutSession_(d, quote, orderId) {
   if (quote.shippingYen > 0) {
     payload['shipping_options[0][shipping_rate_data][type]'] = 'fixed_amount';
     payload['shipping_options[0][shipping_rate_data][display_name]'] = quote.shippingLabel;
-    payload['shipping_options[0][shipping_rate_data][fixed_amount][amount]'] = quote.shippingYen;
+    payload['shipping_options[0][shipping_rate_data][fixed_amount][amount]'] = String(quote.shippingYen);
     payload['shipping_options[0][shipping_rate_data][fixed_amount][currency]'] = 'jpy';
     payload['shipping_options[0][shipping_rate_data][metadata][shipping_method]'] = quote.shippingMethod;
   }
