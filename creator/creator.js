@@ -251,7 +251,9 @@
       depth: depth, bevelEnabled: true, bevelThickness: r, bevelSize: r,
       bevelSegments: 3, steps: 1, curveSegments: 4
     });
-    geo.translate(0, 0, -depth / 2 - r);   // 厚み中心を z=0 に
+    // ExtrudeGeometry は z=-r 〜 depth+r に広がる（中心 depth/2）。
+    // -depth/2 で中心を z=0 にそろえる（総厚み = depth+2r）。
+    geo.translate(0, 0, -depth / 2);
     geo.computeVertexNormals();
     return geo;
   }
