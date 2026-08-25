@@ -41,14 +41,11 @@
   var DEFAULTS = {
     text: 'なまえ', font: 'pop', puff: 0.8,
     textColor: '#F7C1D4', borderColor: '#FFFFFF',
-    border: 2.4, ring: true, ringSide: 'left', material: 'pla'
+    border: 2.4, ring: true, ringSide: 'left'
   };
 
-  // 材料と価格設定。販売条件を変えるときは、この数値だけ調整する。
-  var MATERIALS = {
-    pla:  { label: 'PLA',  density: 1.24, yenPerKg: 3000 },
-    petg: { label: 'PETG', density: 1.27, yenPerKg: 3500 }
-  };
+  // 当面はPLA専用。材料原価や販売条件を変えるときは、この数値だけ調整する。
+  var MATERIAL = { key: 'pla', label: 'PLA', density: 1.24, yenPerKg: 3000 };
   var PRICE = {
     baseYen: 700,          // 造形準備・機械使用・仕上げの基本料金
     yenPerGram: 50,        // 材料使用量に連動する加工料金
@@ -575,7 +572,7 @@
   function yen(n) { return '¥' + Math.round(n).toLocaleString('ja-JP'); }
 
   function calculateEstimate() {
-    var mat = MATERIALS[S.material] || MATERIALS.pla;
+    var mat = MATERIAL;
     var textNetG = meshVolumeMm3(textMesh) / 1000 * mat.density;
     // フチは底と壁のSTLが重なっている。スライサーで一体化される重複分を二重計上しない。
     var borderMm3 = 0;
@@ -593,7 +590,7 @@
     var rawPrice = Math.max(PRICE.minimumYen, PRICE.baseYen + grams * PRICE.yenPerGram);
     var priceYen = Math.ceil(rawPrice / PRICE.roundYen) * PRICE.roundYen;
     return {
-      material: S.material, materialLabel: mat.label,
+      material: mat.key, materialLabel: mat.label,
       textG: textG, borderG: borderG, grams: grams,
       materialYen: materialYen, priceYen: priceYen
     };
@@ -688,10 +685,6 @@
       S.ring = this.checked; rebuild();
     });
 
-    document.getElementById('material').addEventListener('change', function () {
-      S.material = this.value; updateEstimate();
-    });
-
     buildSwatches('swText', 'textColor');
     buildSwatches('swBorder', 'borderColor');
 
@@ -703,7 +696,6 @@
       document.getElementById('border').value = S.border;
       document.getElementById('borderVal').textContent = S.border.toFixed(1) + ' mm';
       document.getElementById('ring').checked = S.ring;
-      document.getElementById('material').value = S.material;
       syncSeg('fontSeg', 'font', S.font); syncSeg('ringSeg', 'side', S.ringSide);
       buildSwatches('swText', 'textColor'); buildSwatches('swBorder', 'borderColor');
       updateTextCount();
@@ -793,7 +785,7 @@
       v: 2, text: S.text, font: S.font, puff: +S.puff.toFixed(2),
       textColor: S.textColor, borderColor: S.borderColor,
       border: +S.border.toFixed(1), ring: S.ring, ringSide: S.ringSide,
-      material: S.material, grams: +e.grams.toFixed(1), priceYen: e.priceYen,
+      material: MATERIAL.key, grams: +e.grams.toFixed(1), priceYen: e.priceYen,
       t_text: T_TEXT, t_floor: FLOOR, t_wall: WALL
     };
   }
