@@ -1050,19 +1050,29 @@
     smart.disabled = !eligible;
     if (!eligible && select.value === 'smart') select.value = 'light';
     var pickup = select.value === 'pickup';
+    var addressGuide = document.getElementById('shippingAddressGuide');
+    var addressTitle = document.getElementById('shippingAddressTitle');
+    var addressText = document.getElementById('shippingAddressText');
+    if (addressGuide) addressGuide.className = 'shipping-guide' + (pickup ? ' pickup' : '');
+    if (addressTitle) addressTitle.textContent = pickup
+      ? '直接受け取りは住所入力不要です'
+      : '配送先住所は次の画面で入力します';
+    if (addressText) addressText.textContent = pickup
+      ? 'お申し込み後、受け取り日時と場所をメールで調整します。'
+      : 'Stripeの安全な決済画面で、日本国内の郵便番号と配送先住所を入力してください。';
     document.getElementById('oShippingNote').textContent = pickup
       ? '送料・オンライン決済はありません。受付後、受け取り日時と場所をメールで調整します。'
       : (eligible
-        ? '全国一律・Stripe手数料込み。スマートレターは追跡なし、レターパックライトは追跡ありです。'
-        : 'この内容は梱包サイズのため、手数料込み450円のレターパックライトで発送します。');
+        ? '全国一律・Stripe手数料込み。住所は次の決済画面で入力します。スマートレターは追跡なし、レターパックライトは追跡ありです。'
+        : 'この内容は梱包サイズのため、手数料込み450円のレターパックライトで発送します。住所は次の決済画面で入力します。');
     var sub = document.getElementById('orderDialogSub');
     if (sub) sub.textContent = pickup
       ? '直接受け取りは送料0円・オンライン決済なしです。送信後、受け取り日時と場所をメールで調整します。'
       : (augustCampaignActive()
-        ? '8月限定キャンペーンのため商品代は0円です。Stripeの決済画面で送料のみをお支払いください。'
-        : '内容を送信後、Stripeの決済画面で商品代と送料を確認します。決済が完了するまで注文は確定しません。');
+        ? '8月限定キャンペーンのため商品代は0円です。次のStripe画面で配送先住所を入力し、送料のみをお支払いください。'
+        : '次のStripe画面で配送先住所を入力し、商品代と送料をご確認ください。決済が完了するまで注文は確定しません。');
     var send = document.getElementById('sendBtn');
-    if (send && !send.disabled) send.textContent = pickup ? '直接受け取りで申し込む' : 'Stripe決済へ進む';
+    if (send && !send.disabled) send.textContent = pickup ? '直接受け取りで申し込む' : '住所入力・Stripe決済へ進む';
     updateOrderPrice();
   }
 
