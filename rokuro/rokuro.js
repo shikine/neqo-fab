@@ -1,6 +1,6 @@
 (function(){'use strict';
 var ENDPOINT='https://script.google.com/macros/s/AKfycbyHicngCVMmfbtBU1VuuL-Ma7-UckHde8SKVsIocotw_DMFi2eWJaM8SooKTp-mTrR1/exec';
-var S={shape:'vessel',height:90,radius:38,belly:.08,rough:.45,seed:18273,wall:3,floor:5,spinOn:true,spinSpeed:1.2,brush:.11,sculptOn:true,sculpt:new Array(64).fill(0),eyes:false,mouth:false,ears:false,nose:false,eyeStyle:'round',mouthStyle:'normal',earStyle:'round',faceSize:8,faceHeight:.56,jomon:false,jomonStyle:'diagonal',jomonSpace:9,jomonSize:2.4,keyring:false,keyringHole:5,color:'#b56f45'};
+var S={shape:'lump',height:90,radius:38,belly:.08,rough:.45,seed:18273,wall:3,floor:5,spinOn:true,spinSpeed:1.2,brush:.11,sculptOn:true,sculpt:new Array(64).fill(0),eyes:false,mouth:false,ears:false,nose:false,eyeStyle:'round',mouthStyle:'normal',earStyle:'round',faceSize:8,faceHeight:.56,jomon:false,jomonStyle:'diagonal',jomonSpace:9,jomonSize:2.4,keyring:false,keyringHole:5,color:'#b56f45'};
 var colors=[['#b56f45','赤土'],['#d59a68','黄土'],['#d8d0ba','白土'],['#6e7469','灰土'],['#446d62','深緑'],['#76536f','葡萄']];
 var canvas=document.getElementById('view'),scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(36,1,.1,1500),renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true,preserveDrawingBuffer:true,alpha:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputEncoding=THREE.sRGBEncoding;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
