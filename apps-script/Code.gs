@@ -224,7 +224,8 @@ function doPost(e) {
 
     var sheet = getSheet_();
     var token = slotStart ? Utilities.getUuid() : '';
-    var isOrder = (d.type === 'ぷくぷくキーホルダー注文');
+    var isPotteryOrder = (d.type === 'ろくろ立体注文');
+    var isOrder = (d.type === 'ぷくぷくキーホルダー注文') || isPotteryOrder;
     var quote = isOrder ? calculateOrderQuote_(d) : null;
     var directPickup = !!quote && quote.shippingMethod === 'pickup';
     var wantsCheckout = isOrder && !directPickup && String(d.checkout || '') === '1';
@@ -288,7 +289,7 @@ function doPost(e) {
     // 注文者への自動返信（完成予想図つき）。任意項目なので失敗は無視。
     try {
       if (d.previewPng && (!quote || directPickup || checkout)) {
-        confirmOrder_(d.name || '', d.mail || '', d.previewPng, d.slug || '', directPickup);
+        confirmOrder_(d.name || '', d.mail || '', d.previewPng, d.slug || '', directPickup, isPotteryOrder);
       }
     } catch (e) {
       console.error('order confirm mail failed: ' + e);
@@ -681,8 +682,13 @@ function notify_(row, slotStart, token, attachments) {
   if (attachments && attachments.length) {
     lines.push('------');
     lines.push('▼ 製造データ（このメールに添付）');
-    lines.push('・フチ（お皿）部品と文字部品を別々の STL で添付しています。');
-    lines.push('・2色でそれぞれ出力し、重ねて組み合わせると完成します（同じ原点・同じ向き）。');
+    if (type === 'ろくろ立体注文') {
+      lines.push('・作品全体の STL と完成予想 PNG を添付しています。');
+      lines.push('・密度、寸法、顔などの製作条件は本文の SPEC を確認してください。');
+    } else {
+      lines.push('・フチ（お皿）部品と文字部品を別々の STL で添付しています。');
+      lines.push('・2色でそれぞれ出力し、重ねて組み合わせると完成します（同じ原点・同じ向き）。');
+    }
     lines.push('');
   }
 
@@ -711,6 +717,7 @@ var ORDER_YEN_PER_GRAM = 50;
 var ORDER_MINIMUM_YEN = 900;
 var ORDER_ROUND_YEN = 100;
 var CREATOR_URL = 'https://shikine.github.io/neqo-fab/creator/';
+var ROKURO_URL = 'https://shikine.github.io/neqo-fab/rokuro/';
 var AUGUST_CAMPAIGN_END_MS = Date.UTC(2026, 7, 31, 15, 0, 0); // 2026-09-01 00:00 JST
 var STRIPE_CARD_FEE_RATE = 0.036;
 
@@ -757,7 +764,8 @@ function stlMetricsMm_(data) {
   if (!triangles || 84 + triangles * 50 > u8.length) throw new Error('bad_stl_triangles');
 
   var sum = 0;
-  var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  var minX = Infinity, minY = Infinity, minZ = Infinity;
+  var maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
   function f(off) { return dv.getFloat32(off, true); }
   for (var t = 0; t < triangles; t++) {
     var p = 84 + t * 50 + 12;
@@ -766,11 +774,12 @@ function stlMetricsMm_(data) {
     var cx = f(p + 24), cy = f(p + 28), cz = f(p + 32);
     minX = Math.min(minX, ax, bx, cx); maxX = Math.max(maxX, ax, bx, cx);
     minY = Math.min(minY, ay, by, cy); maxY = Math.max(maxY, ay, by, cy);
+    minZ = Math.min(minZ, az, bz, cz); maxZ = Math.max(maxZ, az, bz, cz);
     sum += (ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) + az * (bx * cy - by * cx)) / 6;
   }
   var volume = Math.abs(sum);
   if (!isFinite(volume) || volume <= 0) throw new Error('bad_stl_volume');
-  return { volume: volume, width: maxX - minX, height: maxY - minY };
+  return { volume: volume, width: maxX - minX, height: maxY - minY, depth: maxZ - minZ };
 }
 
 function stlVolumeMm3_(data) {
@@ -781,22 +790,40 @@ function stlVolumeMm3_(data) {
 function calculateOrderQuote_(d) {
   var qty = parseInt(d.qty, 10);
   if (!isFinite(qty) || qty < 1 || qty > 5) throw new Error('bad_quantity');
-  var textMm3 = stlVolumeMm3_(d.lettersStl);
-  var floorMetrics = stlMetricsMm_(d.floorStl);
-  var floorMm3 = floorMetrics.volume;
-  var rimMm3 = stlVolumeMm3_(d.rimStl);
-  // 底と壁は重なっているため、スライサーで一体化される重複分を二重計上しない。
-  var borderMm3 = floorMm3 + rimMm3 * (ORDER_WALL_MM / (ORDER_FLOOR_MM + ORDER_WALL_MM));
-  var textG = textMm3 / 1000 * ORDER_PLA_DENSITY * ORDER_MATERIAL_MARGIN + ORDER_JOB_OVERHEAD_G;
-  var borderG = borderMm3 / 1000 * ORDER_PLA_DENSITY * ORDER_MATERIAL_MARGIN + ORDER_JOB_OVERHEAD_G;
-  var grams = textG + borderG;
-  if (!isFinite(grams) || grams < 0.5 || grams > 250) throw new Error('bad_material_amount');
-
-  var raw = Math.max(ORDER_MINIMUM_YEN, ORDER_BASE_YEN + grams * ORDER_YEN_PER_GRAM);
+  var pottery = !!d.potteryStl;
+  var shippingBounds;
+  var grams;
+  var raw;
+  if (pottery) {
+    var potteryMetrics = stlMetricsMm_(d.potteryStl);
+    if (Math.max(potteryMetrics.width, potteryMetrics.height, potteryMetrics.depth) > 100.6) {
+      throw new Error('pottery_too_large');
+    }
+    var densityFactors = { dense: 1, standard: 0.57, light: 0.38 };
+    var densityFactor = densityFactors[String(d.densityKey || '')];
+    if (!densityFactor) throw new Error('bad_density');
+    grams = potteryMetrics.volume / 1000 * ORDER_PLA_DENSITY * 1.12 * densityFactor + ORDER_JOB_OVERHEAD_G;
+    if (!isFinite(grams) || grams < 0.5 || grams > 700) throw new Error('bad_material_amount');
+    raw = Math.max(1800, 1100 + grams * 55);
+    shippingBounds = potteryMetrics;
+  } else {
+    var textMm3 = stlVolumeMm3_(d.lettersStl);
+    var floorMetrics = stlMetricsMm_(d.floorStl);
+    var floorMm3 = floorMetrics.volume;
+    var rimMm3 = stlVolumeMm3_(d.rimStl);
+    // 底と壁は重なっているため、スライサーで一体化される重複分を二重計上しない。
+    var borderMm3 = floorMm3 + rimMm3 * (ORDER_WALL_MM / (ORDER_FLOOR_MM + ORDER_WALL_MM));
+    var textG = textMm3 / 1000 * ORDER_PLA_DENSITY * ORDER_MATERIAL_MARGIN + ORDER_JOB_OVERHEAD_G;
+    var borderG = borderMm3 / 1000 * ORDER_PLA_DENSITY * ORDER_MATERIAL_MARGIN + ORDER_JOB_OVERHEAD_G;
+    grams = textG + borderG;
+    if (!isFinite(grams) || grams < 0.5 || grams > 250) throw new Error('bad_material_amount');
+    raw = Math.max(ORDER_MINIMUM_YEN, ORDER_BASE_YEN + grams * ORDER_YEN_PER_GRAM);
+    shippingBounds = floorMetrics;
+  }
   var regularUnit = Math.ceil(raw / ORDER_ROUND_YEN) * ORDER_ROUND_YEN;
   var campaign = augustCampaignActive_();
   var unit = campaign ? 0 : regularUnit;
-  var shipping = shippingQuote_(d.shippingMethod, qty, floorMetrics);
+  var shipping = shippingQuote_(d.shippingMethod, qty, shippingBounds);
   return {
     qty: qty,
     grams: Math.round(grams * 10) / 10,
@@ -841,8 +868,11 @@ function stripeRequest_(method, path, payload, idempotencyKey) {
 }
 
 function createCheckoutSession_(d, quote, orderId) {
-  var success = CREATOR_URL + '?payment=success&session_id={CHECKOUT_SESSION_ID}';
-  var cancel = CREATOR_URL + '?payment=cancelled';
+  var pottery = d.type === 'ろくろ立体注文';
+  var productName = pottery ? 'ねんどのかたち 3Dプリント' : 'ぷくぷくネームキーホルダー';
+  var returnUrl = pottery ? ROKURO_URL : CREATOR_URL;
+  var success = returnUrl + '?payment=success&session_id={CHECKOUT_SESSION_ID}';
+  var cancel = returnUrl + '?payment=cancelled';
   var payload = {
     mode: 'payment',
     locale: 'ja',
@@ -862,12 +892,12 @@ function createCheckoutSession_(d, quote, orderId) {
     payload['line_items[0][price_data][unit_amount]'] = String(quote.shippingYen);
     payload['line_items[0][price_data][product_data][name]'] = '8月限定キャンペーン配送料';
     payload['line_items[0][price_data][product_data][description]'] =
-      quote.shippingLabel + '／ぷくぷくネームキーホルダー ' + quote.qty + '個';
+      quote.shippingLabel + '／' + productName + ' ' + quote.qty + '個';
   } else {
     payload['line_items[0][quantity]'] = String(quote.qty);
     payload['line_items[0][price_data][currency]'] = 'jpy';
     payload['line_items[0][price_data][unit_amount]'] = String(quote.unitPriceYen);
-    payload['line_items[0][price_data][product_data][name]'] = 'ぷくぷくネームキーホルダー';
+    payload['line_items[0][price_data][product_data][name]'] = productName;
     payload['line_items[0][price_data][product_data][description]'] = String(d.slug || 'オーダー文字').slice(0, 120);
   }
   if (!quote.campaign && quote.shippingYen > 0) {
@@ -934,15 +964,17 @@ function buildOrderAttachments_(d) {
   var slug = sanitizeSlug_(d.slug) || 'keychain';
   var border = decodeToBlob_(d.borderStl, 'model/stl', slug + '_border.stl');
   var letters = decodeToBlob_(d.lettersStl, 'model/stl', slug + '_letters.stl');
+  var pottery = decodeToBlob_(d.potteryStl, 'model/stl', slug + '_pottery.stl');
   var png = decodeToBlob_(d.previewPng, 'image/png', slug + '_preview.png');
-  if (border) out.push(border);
+  if (border && !pottery) out.push(border);
   if (letters) out.push(letters);
+  if (pottery) out.push(pottery);
   if (png) out.push(png);
   return out;
 }
 
 /** 注文者への自動返信（完成予想図PNGを添付）。 */
-function confirmOrder_(name, mail, previewPng, slug, directPickup) {
+function confirmOrder_(name, mail, previewPng, slug, directPickup, pottery) {
   if (!mail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return;
   var png = decodeToBlob_(previewPng, 'image/png', (sanitizeSlug_(slug) || 'keychain') + '_preview.png');
   var replyTo = PropertiesService.getScriptProperties().getProperty('NOTIFY_TO')
@@ -958,7 +990,7 @@ function confirmOrder_(name, mail, previewPng, slug, directPickup) {
   var body = [
     (name ? name + ' 様' : 'ご注文ありがとうございます'),
     '',
-    'ぷくぷくネームキーホルダーの注文データを受け付けました。',
+    (pottery ? 'ねんどのかたち3Dプリント' : 'ぷくぷくネームキーホルダー') + 'の注文データを受け付けました。',
     '完成予想図を添付しています。',
     ''
   ].concat(paymentLines).concat([
